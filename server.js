@@ -15,31 +15,44 @@ const TICKS_PER_BATCH = 1000;
 
 /*
 ==========================================================
- KEAMZ FX V3.4
+ KEAMZ FX V4 FINAL / FROZEN
 ==========================================================
 
 5M  = MARKET BIAS
-1M  = SETUP / STRUCTURE
+1M  = MARKET STRUCTURE + SETUP
 10S = ENTRY TRIGGER
 
-V3.4 introduces:
+DECISION ARCHITECTURE
 
-• Market bias
-• Bias strength
-• Setup formation
-• Setup stage
-• Trigger quality
-• Continuation setups
-• Reversal setups
-• Liquidity confirmation
-• FVG confirmation
-• Momentum confirmation
-• RSI recovery
-• Early setup detection
-• Strict entry confirmation
+1. MARKET BIAS
+   Determines whether the broader environment is:
+   BULLISH / BEARISH / RANGE
+
+2. SETUP
+   Determines whether a continuation or reversal
+   is actually developing.
+
+3. TRIGGER
+   Determines whether an entry is confirmed.
+
+4. ACTION
+   BUY / SELL is ONLY allowed after trigger confirmation.
 
 IMPORTANT:
-This is PAPER ANALYSIS ONLY.
+
+• Liquidity sweep alone NEVER creates a setup.
+• FVG alone NEVER creates a setup.
+• Momentum alone NEVER creates a setup.
+• RSI alone NEVER creates a setup.
+• RANGE conditions suppress weak directional setups.
+• Reversal requires evidence that price is actually
+  beginning to move away from the swept liquidity.
+• BUY/SELL requires directional setup + 10S BOS +
+  matching momentum.
+• Levels are generated only after confirmation.
+
+This system is PAPER ANALYSIS ONLY.
+It does not execute trades.
 It does not guarantee profitable trades.
 ==========================================================
 */
@@ -55,9 +68,11 @@ function sleep(ms) {
   });
 }
 
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
+
 
 function roundNumber(value, decimals) {
 
@@ -68,6 +83,16 @@ function roundNumber(value, decimals) {
   var factor = Math.pow(10, decimals || 2);
 
   return Math.round(value * factor) / factor;
+}
+
+
+function uniqueArray(array) {
+
+  return array.filter(
+    function(item, index) {
+      return array.indexOf(item) === index;
+    }
+  );
 }
 
 
@@ -96,6 +121,7 @@ function getDerivHistoryBatch(symbol, endTime) {
       resolve(data);
     }
 
+
     function failure(error) {
 
       if (finished) return;
@@ -109,6 +135,7 @@ function getDerivHistoryBatch(symbol, endTime) {
       reject(error);
     }
 
+
     var timeout = setTimeout(function() {
 
       failure(
@@ -116,6 +143,7 @@ function getDerivHistoryBatch(symbol, endTime) {
       );
 
     }, 15000);
+
 
     ws.on("open", function() {
 
@@ -130,12 +158,14 @@ function getDerivHistoryBatch(symbol, endTime) {
 
     });
 
+
     ws.on("message", function(message) {
 
       try {
 
         var data =
           JSON.parse(message.toString());
+
 
         if (data.error) {
 
@@ -150,6 +180,7 @@ function getDerivHistoryBatch(symbol, endTime) {
 
           return;
         }
+
 
         if (
           data.history &&
@@ -175,6 +206,7 @@ function getDerivHistoryBatch(symbol, endTime) {
 
     });
 
+
     ws.on("error", function(error) {
 
       clearTimeout(timeout);
@@ -182,6 +214,7 @@ function getDerivHistoryBatch(symbol, endTime) {
       failure(error);
 
     });
+
 
     ws.on("close", function() {
 
@@ -213,13 +246,19 @@ async function getDerivTicks(symbol, batches) {
 
   var endTime = "latest";
 
-  for (var i = 0; i < batches; i++) {
+
+  for (
+    var i = 0;
+    i < batches;
+    i++
+  ) {
 
     var batch =
       await getDerivHistoryBatch(
         symbol,
         endTime
       );
+
 
     if (
       !batch ||
@@ -229,6 +268,7 @@ async function getDerivTicks(symbol, batches) {
       break;
     }
 
+
     for (
       var j = 0;
       j < batch.times.length;
@@ -236,52 +276,77 @@ async function getDerivTicks(symbol, batches) {
     ) {
 
       allTicks.push({
-        time: Number(batch.times[j]),
-        price: Number(batch.prices[j])
+
+        time:
+          Number(batch.times[j]),
+
+        price:
+          Number(batch.prices[j])
+
       });
 
     }
 
+
     var oldest =
       Math.min.apply(
         null,
-        batch.times.map(function(t) {
-          return Number(t);
-        })
+        batch.times.map(
+          function(t) {
+            return Number(t);
+          }
+        )
       );
+
 
     if (!Number.isFinite(oldest)) {
       break;
     }
 
-    endTime = oldest - 1;
+
+    endTime =
+      oldest - 1;
+
 
     await sleep(100);
   }
 
+
   allTicks =
-    allTicks.filter(function(tick) {
+    allTicks.filter(
+      function(tick) {
 
-      return (
-        Number.isFinite(tick.time) &&
-        Number.isFinite(tick.price)
-      );
+        return (
+          Number.isFinite(tick.time) &&
+          Number.isFinite(tick.price)
+        );
 
-    });
+      }
+    );
 
-  allTicks.sort(function(a, b) {
-    return a.time - b.time;
-  });
+
+  allTicks.sort(
+    function(a, b) {
+      return a.time - b.time;
+    }
+  );
+
 
   var unique = [];
   var seen = {};
 
-  for (var k = 0; k < allTicks.length; k++) {
+
+  for (
+    var k = 0;
+    k < allTicks.length;
+    k++
+  ) {
 
     var key =
       String(allTicks[k].time) +
       "_" +
       String(allTicks[k].price);
+
 
     if (!seen[key]) {
 
@@ -292,7 +357,9 @@ async function getDerivTicks(symbol, batches) {
       );
 
     }
+
   }
+
 
   return unique;
 }
@@ -304,22 +371,34 @@ async function getDerivTicks(symbol, batches) {
 
 function buildCandles(ticks, seconds) {
 
-  if (!ticks || ticks.length === 0) {
+  if (
+    !ticks ||
+    ticks.length === 0
+  ) {
     return [];
   }
+
 
   var candles = [];
 
   var current = null;
 
-  for (var i = 0; i < ticks.length; i++) {
 
-    var tick = ticks[i];
+  for (
+    var i = 0;
+    i < ticks.length;
+    i++
+  ) {
+
+    var tick =
+      ticks[i];
+
 
     var bucket =
       Math.floor(
         tick.time / seconds
       ) * seconds;
+
 
     if (
       !current ||
@@ -333,15 +412,18 @@ function buildCandles(ticks, seconds) {
 
         delete current.lastPrice;
 
+
         current.range =
           current.high -
           current.low;
+
 
         current.body =
           Math.abs(
             current.close -
             current.open
           );
+
 
         current.direction =
           current.close >
@@ -352,23 +434,33 @@ function buildCandles(ticks, seconds) {
                 ? "BEARISH"
                 : "NEUTRAL";
 
+
         candles.push(current);
       }
 
+
       current = {
 
-        time: bucket,
+        time:
+          bucket,
 
-        open: tick.price,
+        open:
+          tick.price,
 
-        high: tick.price,
+        high:
+          tick.price,
 
-        low: tick.price,
+        low:
+          tick.price,
 
-        close: tick.price,
+        close:
+          tick.price,
 
-        lastPrice: tick.price
+        lastPrice:
+          tick.price
+
       };
+
 
     } else {
 
@@ -378,16 +470,20 @@ function buildCandles(ticks, seconds) {
           tick.price
         );
 
+
       current.low =
         Math.min(
           current.low,
           tick.price
         );
 
+
       current.lastPrice =
         tick.price;
     }
+
   }
+
 
   if (current) {
 
@@ -396,15 +492,18 @@ function buildCandles(ticks, seconds) {
 
     delete current.lastPrice;
 
+
     current.range =
       current.high -
       current.low;
+
 
     current.body =
       Math.abs(
         current.close -
         current.open
       );
+
 
     current.direction =
       current.close >
@@ -415,8 +514,10 @@ function buildCandles(ticks, seconds) {
             ? "BEARISH"
             : "NEUTRAL";
 
+
     candles.push(current);
   }
+
 
   return candles;
 }
@@ -435,10 +536,13 @@ function ema(candles, period) {
     return null;
   }
 
+
   var multiplier =
     2 / (period + 1);
 
+
   var value = 0;
+
 
   for (
     var i = 0;
@@ -450,7 +554,10 @@ function ema(candles, period) {
       candles[i].close;
   }
 
-  value /= period;
+
+  value /=
+    period;
+
 
   for (
     var j = period;
@@ -463,7 +570,9 @@ function ema(candles, period) {
         (candles[j].close - value) *
         multiplier
       ) + value;
+
   }
+
 
   return value;
 }
@@ -482,8 +591,10 @@ function rsi(candles, period) {
     return null;
   }
 
+
   var gains = 0;
   var losses = 0;
+
 
   for (
     var i = 1;
@@ -495,6 +606,7 @@ function rsi(candles, period) {
       candles[i].close -
       candles[i - 1].close;
 
+
     if (change >= 0) {
 
       gains += change;
@@ -503,14 +615,19 @@ function rsi(candles, period) {
 
       losses +=
         Math.abs(change);
+
     }
+
   }
+
 
   var averageGain =
     gains / period;
 
+
   var averageLoss =
     losses / period;
+
 
   for (
     var j = period + 1;
@@ -522,15 +639,18 @@ function rsi(candles, period) {
       candles[j].close -
       candles[j - 1].close;
 
+
     var gain =
       difference > 0
         ? difference
         : 0;
 
+
     var loss =
       difference < 0
         ? Math.abs(difference)
         : 0;
+
 
     averageGain =
       (
@@ -539,21 +659,26 @@ function rsi(candles, period) {
         gain
       ) / period;
 
+
     averageLoss =
       (
         averageLoss *
         (period - 1) +
         loss
       ) / period;
+
   }
+
 
   if (averageLoss === 0) {
     return 100;
   }
 
+
   var rs =
     averageGain /
     averageLoss;
+
 
   return (
     100 -
@@ -575,7 +700,9 @@ function atr(candles, period) {
     return null;
   }
 
+
   var trs = [];
+
 
   for (
     var i = 1;
@@ -589,8 +716,10 @@ function atr(candles, period) {
     var previous =
       candles[i - 1];
 
+
     var tr =
       Math.max(
+
         current.high -
           current.low,
 
@@ -603,16 +732,21 @@ function atr(candles, period) {
           current.low -
           previous.close
         )
+
       );
+
 
     trs.push(tr);
   }
+
 
   if (trs.length < period) {
     return null;
   }
 
+
   var value = 0;
+
 
   for (
     var j = 0;
@@ -623,7 +757,10 @@ function atr(candles, period) {
     value += trs[j];
   }
 
-  value /= period;
+
+  value /=
+    period;
+
 
   for (
     var k = period;
@@ -637,7 +774,9 @@ function atr(candles, period) {
         (period - 1) +
         trs[k]
       ) / period;
+
   }
+
 
   return value;
 }
@@ -655,16 +794,23 @@ function getTrend(candles) {
   ) {
 
     return {
-      direction: "RANGE",
-      strength: 0
+
+      direction:
+        "RANGE",
+
+      strength:
+        0
     };
   }
+
 
   var fast =
     ema(candles, 9);
 
+
   var slow =
     ema(candles, 21);
+
 
   if (
     fast === null ||
@@ -672,13 +818,19 @@ function getTrend(candles) {
   ) {
 
     return {
-      direction: "RANGE",
-      strength: 0
+
+      direction:
+        "RANGE",
+
+      strength:
+        0
     };
   }
 
+
   var atrValue =
     atr(candles, 14);
+
 
   if (
     !atrValue ||
@@ -686,19 +838,26 @@ function getTrend(candles) {
   ) {
 
     return {
-      direction: "RANGE",
-      strength: 0
+
+      direction:
+        "RANGE",
+
+      strength:
+        0
     };
   }
+
 
   var distance =
     Math.abs(
       fast - slow
     );
 
+
   var normalized =
     distance /
     atrValue;
+
 
   var strength =
     clamp(
@@ -709,16 +868,12 @@ function getTrend(candles) {
       100
     );
 
+
   var current =
     candles[
       candles.length - 1
     ].close;
 
-  /*
-  ------------------------------------------
-  BULLISH
-  ------------------------------------------
-  */
 
   if (
     fast > slow &&
@@ -726,16 +881,15 @@ function getTrend(candles) {
   ) {
 
     return {
-      direction: "BULLISH",
-      strength: strength
+
+      direction:
+        "BULLISH",
+
+      strength:
+        strength
     };
   }
 
-  /*
-  ------------------------------------------
-  BEARISH
-  ------------------------------------------
-  */
 
   if (
     fast < slow &&
@@ -743,14 +897,23 @@ function getTrend(candles) {
   ) {
 
     return {
-      direction: "BEARISH",
-      strength: strength
+
+      direction:
+        "BEARISH",
+
+      strength:
+        strength
     };
   }
 
+
   return {
-    direction: "RANGE",
-    strength: strength
+
+    direction:
+      "RANGE",
+
+    strength:
+      strength
   };
 }
 
@@ -767,16 +930,28 @@ function getStructure(candles) {
   ) {
 
     return {
-      direction: "RANGE",
-      bos: false,
-      bosDirection: "NONE",
-      swingHigh: null,
-      swingLow: null
+
+      direction:
+        "RANGE",
+
+      bos:
+        false,
+
+      bosDirection:
+        "NONE",
+
+      swingHigh:
+        null,
+
+      swingLow:
+        null
     };
   }
 
+
   var swingHigh = null;
   var swingLow = null;
+
 
   var start =
     Math.max(
@@ -784,8 +959,10 @@ function getStructure(candles) {
       candles.length - 30
     );
 
+
   var end =
     candles.length - 3;
+
 
   for (
     var i = start;
@@ -804,6 +981,7 @@ function getStructure(candles) {
         candles[i].high;
     }
 
+
     if (
       candles[i].low <
         candles[i - 1].low &&
@@ -814,34 +992,35 @@ function getStructure(candles) {
       swingLow =
         candles[i].low;
     }
+
   }
+
 
   var last =
     candles[
       candles.length - 1
     ];
 
+
   var previous =
     candles[
       candles.length - 2
     ];
 
+
   var atrValue =
     atr(candles, 14) || 0;
 
+
   var buffer =
     atrValue * 0.08;
+
 
   var bos = false;
 
   var bosDirection =
     "NONE";
 
-  /*
-  ------------------------------------------
-  BULLISH BOS
-  ------------------------------------------
-  */
 
   if (
     swingHigh !== null &&
@@ -857,11 +1036,6 @@ function getStructure(candles) {
       "BULLISH";
   }
 
-  /*
-  ------------------------------------------
-  BEARISH BOS
-  ------------------------------------------
-  */
 
   if (
     swingLow !== null &&
@@ -877,11 +1051,6 @@ function getStructure(candles) {
       "BEARISH";
   }
 
-  /*
-  ------------------------------------------
-  RECENT STRUCTURE
-  ------------------------------------------
-  */
 
   var recent =
     candles.slice(
@@ -891,38 +1060,60 @@ function getStructure(candles) {
       )
     );
 
+
   var first =
     recent[0].close;
+
 
   var lastClose =
     recent[
       recent.length - 1
     ].close;
 
+
   var direction =
     "RANGE";
 
+
+  var structureAtr =
+    atr(candles, 14) || 0;
+
+
+  var movement =
+    Math.abs(
+      lastClose - first
+    );
+
+
   if (
-    lastClose > first
+    movement >
+    structureAtr * 0.35
   ) {
 
-    direction =
-      "BULLISH";
+    if (
+      lastClose > first
+    ) {
+
+      direction =
+        "BULLISH";
+
+    } else if (
+      lastClose < first
+    ) {
+
+      direction =
+        "BEARISH";
+    }
   }
 
-  if (
-    lastClose < first
-  ) {
-
-    direction =
-      "BEARISH";
-  }
 
   return {
 
-    direction: direction,
+    direction:
+      direction,
 
-    bos: bos,
+    bos:
+      bos,
 
     bosDirection:
       bosDirection,
@@ -948,26 +1139,38 @@ function detectLiquiditySweep(candles) {
   ) {
 
     return {
-      direction: "NONE",
-      strength: 0,
-      age: null
+
+      direction:
+        "NONE",
+
+      strength:
+        0,
+
+      age:
+        null
     };
   }
 
+
   var best = {
 
-    direction: "NONE",
+    direction:
+      "NONE",
 
-    strength: 0,
+    strength:
+      0,
 
-    age: null
+    age:
+      null
   };
+
 
   var start =
     Math.max(
       2,
       candles.length - 8
     );
+
 
   for (
     var i = start;
@@ -978,11 +1181,13 @@ function detectLiquiditySweep(candles) {
     var candle =
       candles[i];
 
+
     var previousHigh =
       Math.max(
         candles[i - 1].high,
         candles[i - 2].high
       );
+
 
     var previousLow =
       Math.min(
@@ -990,8 +1195,13 @@ function detectLiquiditySweep(candles) {
         candles[i - 2].low
       );
 
+
     /*
     BUY-SIDE SWEEP
+
+    Price takes highs and closes back below.
+    This is potential bearish reversal evidence,
+    NOT automatic bearish confirmation.
     */
 
     if (
@@ -1008,9 +1218,11 @@ function detectLiquiditySweep(candles) {
           candle.close
         );
 
+
       var range =
         candle.high -
         candle.low;
+
 
       var strength =
         range > 0
@@ -1026,10 +1238,12 @@ function detectLiquiditySweep(candles) {
             )
           : 0;
 
+
       var age =
         candles.length -
         1 -
         i;
+
 
       if (
         strength >
@@ -1050,8 +1264,12 @@ function detectLiquiditySweep(candles) {
       }
     }
 
+
     /*
     SELL-SIDE SWEEP
+
+    Price takes lows and closes back above.
+    This is potential bullish reversal evidence.
     */
 
     if (
@@ -1068,9 +1286,11 @@ function detectLiquiditySweep(candles) {
         ) -
         candle.low;
 
+
       var lowerRange =
         candle.high -
         candle.low;
+
 
       var lowerStrength =
         lowerRange > 0
@@ -1086,10 +1306,12 @@ function detectLiquiditySweep(candles) {
             )
           : 0;
 
+
       var lowerAge =
         candles.length -
         1 -
         i;
+
 
       if (
         lowerStrength >
@@ -1109,7 +1331,9 @@ function detectLiquiditySweep(candles) {
         };
       }
     }
+
   }
+
 
   return best;
 }
@@ -1128,36 +1352,61 @@ function detectFVG(candles) {
 
     return {
 
-      direction: "NONE",
+      direction:
+        "NONE",
 
-      strength: 0,
+      strength:
+        0,
 
-      age: null,
+      rawStrength:
+        0,
 
-      gap: 0,
+      age:
+        null,
 
-      active: false
+      gap:
+        0,
+
+      active:
+        false,
+
+      freshness:
+        "NONE"
     };
   }
 
+
   var best = {
 
-    direction: "NONE",
+    direction:
+      "NONE",
 
-    strength: 0,
+    strength:
+      0,
 
-    age: null,
+    rawStrength:
+      0,
 
-    gap: 0,
+    age:
+      null,
 
-    active: false
+    gap:
+      0,
+
+    active:
+      false,
+
+    freshness:
+      "NONE"
   };
+
 
   var start =
     Math.max(
       2,
       candles.length - 12
     );
+
 
   for (
     var i = start;
@@ -1168,11 +1417,14 @@ function detectFVG(candles) {
     var left =
       candles[i - 1];
 
+
     var middle =
       candles[i];
 
+
     var right =
       candles[i + 1];
+
 
     /*
     BULLISH FVG
@@ -1187,11 +1439,13 @@ function detectFVG(candles) {
         right.low -
         left.high;
 
+
       var range =
         middle.high -
         middle.low;
 
-      var strength =
+
+      var rawStrength =
         range > 0
           ? clamp(
               Math.round(
@@ -1205,17 +1459,45 @@ function detectFVG(candles) {
             )
           : 0;
 
+
+      var age =
+        candles.length -
+        1 -
+        i;
+
+
       var active =
         candles[
           candles.length - 1
         ].close >
         left.high;
 
+
       if (
         active &&
-        strength >=
-          best.strength
+        rawStrength >=
+        best.rawStrength
       ) {
+
+        var freshness =
+          age <= 3
+            ? "FRESH"
+            : age <= 6
+              ? "AGING"
+              : "OLD";
+
+
+        var usableStrength =
+          freshness === "FRESH"
+            ? rawStrength
+            : freshness === "AGING"
+              ? Math.round(
+                  rawStrength * 0.65
+                )
+              : Math.round(
+                  rawStrength * 0.35
+                );
+
 
         best = {
 
@@ -1223,21 +1505,26 @@ function detectFVG(candles) {
             "BULLISH FVG",
 
           strength:
-            strength,
+            usableStrength,
+
+          rawStrength:
+            rawStrength,
 
           age:
-            candles.length -
-            1 -
-            i,
+            age,
 
           gap:
             gap,
 
           active:
-            true
+            true,
+
+          freshness:
+            freshness
         };
       }
     }
+
 
     /*
     BEARISH FVG
@@ -1252,11 +1539,13 @@ function detectFVG(candles) {
         left.low -
         right.high;
 
+
       var bearishRange =
         middle.high -
         middle.low;
 
-      var bearishStrength =
+
+      var bearishRawStrength =
         bearishRange > 0
           ? clamp(
               Math.round(
@@ -1270,17 +1559,45 @@ function detectFVG(candles) {
             )
           : 0;
 
+
+      var bearishAge =
+        candles.length -
+        1 -
+        i;
+
+
       var bearishActive =
         candles[
           candles.length - 1
         ].close <
         left.low;
 
+
       if (
         bearishActive &&
-        bearishStrength >=
-          best.strength
+        bearishRawStrength >=
+        best.rawStrength
       ) {
+
+        var bearishFreshness =
+          bearishAge <= 3
+            ? "FRESH"
+            : bearishAge <= 6
+              ? "AGING"
+              : "OLD";
+
+
+        var bearishUsableStrength =
+          bearishFreshness === "FRESH"
+            ? bearishRawStrength
+            : bearishFreshness === "AGING"
+              ? Math.round(
+                  bearishRawStrength * 0.65
+                )
+              : Math.round(
+                  bearishRawStrength * 0.35
+                );
+
 
         best = {
 
@@ -1288,22 +1605,28 @@ function detectFVG(candles) {
             "BEARISH FVG",
 
           strength:
-            bearishStrength,
+            bearishUsableStrength,
+
+          rawStrength:
+            bearishRawStrength,
 
           age:
-            candles.length -
-            1 -
-            i,
+            bearishAge,
 
           gap:
             bearishGap,
 
           active:
-            true
+            true,
+
+          freshness:
+            bearishFreshness
         };
       }
     }
+
   }
+
 
   return best;
 }
@@ -1330,6 +1653,7 @@ function getMomentum(candles) {
     };
   }
 
+
   var recent =
     candles.slice(
       Math.max(
@@ -1338,9 +1662,10 @@ function getMomentum(candles) {
       )
     );
 
-  var bullish = 0;
 
+  var bullish = 0;
   var bearish = 0;
+
 
   for (
     var i = 0;
@@ -1351,9 +1676,11 @@ function getMomentum(candles) {
     var candle =
       recent[i];
 
+
     var range =
       candle.high -
       candle.low;
+
 
     if (
       range <= 0
@@ -1361,9 +1688,11 @@ function getMomentum(candles) {
       continue;
     }
 
+
     var bodyRatio =
       candle.body /
       range;
+
 
     if (
       candle.close >
@@ -1374,6 +1703,7 @@ function getMomentum(candles) {
       bullish++;
     }
 
+
     if (
       candle.close <
         candle.open &&
@@ -1382,13 +1712,16 @@ function getMomentum(candles) {
 
       bearish++;
     }
+
   }
+
 
   var strength =
     Math.abs(
       bullish -
       bearish
     ) * 20;
+
 
   if (
     bullish >= 3 &&
@@ -1409,6 +1742,7 @@ function getMomentum(candles) {
     };
   }
 
+
   if (
     bearish >= 3 &&
     bearish > bullish
@@ -1427,6 +1761,7 @@ function getMomentum(candles) {
         )
     };
   }
+
 
   return {
 
@@ -1452,7 +1787,8 @@ function getRSIContext(candles) {
 
     return {
 
-      value: null,
+      value:
+        null,
 
       context:
         "N/A",
@@ -1465,8 +1801,13 @@ function getRSIContext(candles) {
     };
   }
 
+
   var current =
-    rsi(candles, 14);
+    rsi(
+      candles,
+      14
+    );
+
 
   var previousCandles =
     candles.slice(
@@ -1474,11 +1815,13 @@ function getRSIContext(candles) {
       candles.length - 1
     );
 
+
   var previous =
     rsi(
       previousCandles,
       14
     );
+
 
   if (
     current === null ||
@@ -1501,11 +1844,15 @@ function getRSIContext(candles) {
     };
   }
 
+
   var change =
-    current - previous;
+    current -
+    previous;
+
 
   var context =
     "NEUTRAL";
+
 
   if (
     current < 30
@@ -1522,11 +1869,14 @@ function getRSIContext(candles) {
       "OVERBOUGHT";
   }
 
+
   var recovery =
     false;
 
+
   var recoveryDirection =
     "NONE";
+
 
   if (
     previous < 35 &&
@@ -1541,6 +1891,7 @@ function getRSIContext(candles) {
       "BULLISH";
   }
 
+
   if (
     previous > 65 &&
     current < previous &&
@@ -1553,6 +1904,7 @@ function getRSIContext(candles) {
     recoveryDirection =
       "BEARISH";
   }
+
 
   return {
 
@@ -1578,10 +1930,18 @@ function getRSIContext(candles) {
 function getEMAState(candles) {
 
   var fast =
-    ema(candles, 9);
+    ema(
+      candles,
+      9
+    );
+
 
   var slow =
-    ema(candles, 21);
+    ema(
+      candles,
+      21
+    );
+
 
   if (
     fast === null ||
@@ -1591,12 +1951,14 @@ function getEMAState(candles) {
     return "N/A";
   }
 
+
   if (
     fast > slow
   ) {
 
     return "Bullish";
   }
+
 
   if (
     fast < slow
@@ -1605,12 +1967,13 @@ function getEMAState(candles) {
     return "Bearish";
   }
 
+
   return "Neutral";
 }
 
 
 // ========================================================
-// BIAS ENGINE
+// FINAL MARKET BIAS
 // ========================================================
 
 function calculateBias(
@@ -1622,12 +1985,15 @@ function calculateBias(
 ) {
 
   var buy = 0;
-
   var sell = 0;
 
 
   /*
   5M TREND
+
+  Strong trend gets more weight.
+  Very weak trend is not treated as a real
+  directional bias.
   */
 
   if (
@@ -1635,14 +2001,20 @@ function calculateBias(
     "BULLISH"
   ) {
 
-    buy += 45;
+    buy +=
+      trend5m.strength >= 20
+        ? 45
+        : 20;
 
   } else if (
     trend5m.direction ===
     "BEARISH"
   ) {
 
-    sell += 45;
+    sell +=
+      trend5m.strength >= 20
+        ? 45
+        : 20;
   }
 
 
@@ -1688,6 +2060,8 @@ function calculateBias(
 
   /*
   MOMENTUM
+
+  Weak momentum is deliberately capped.
   */
 
   if (
@@ -1695,25 +2069,34 @@ function calculateBias(
     "BULLISH"
   ) {
 
-    buy += 10;
+    buy +=
+      momentum10s.strength >= 60
+        ? 10
+        : 5;
 
   } else if (
     momentum10s.direction ===
     "BEARISH"
   ) {
 
-    sell += 10;
+    sell +=
+      momentum10s.strength >= 60
+        ? 10
+        : 5;
   }
 
 
   /*
   FVG
+
+  Old/weak FVG receives less influence.
   */
 
   if (
     fvg1m.direction ===
       "BULLISH FVG" &&
-    fvg1m.active
+    fvg1m.active &&
+    fvg1m.strength >= 40
   ) {
 
     buy += 10;
@@ -1721,7 +2104,8 @@ function calculateBias(
   } else if (
     fvg1m.direction ===
       "BEARISH FVG" &&
-    fvg1m.active
+    fvg1m.active &&
+    fvg1m.strength >= 40
   ) {
 
     sell += 10;
@@ -1734,6 +2118,7 @@ function calculateBias(
       0,
       100
     );
+
 
   sell =
     clamp(
@@ -1748,15 +2133,24 @@ function calculateBias(
       buy - sell
     );
 
+
   var bias =
     "RANGE";
 
-  var strength = 0;
 
+  var strength =
+    0;
+
+
+  /*
+  REAL BULLISH BIAS
+
+  Requires meaningful score AND separation.
+  */
 
   if (
-    buy >= 55 &&
-    buy > sell + 15
+    buy >= 60 &&
+    buy >= sell + 20
   ) {
 
     bias =
@@ -1765,9 +2159,14 @@ function calculateBias(
     strength =
       buy;
 
+
+  /*
+  REAL BEARISH BIAS
+  */
+
   } else if (
-    sell >= 55 &&
-    sell > buy + 15
+    sell >= 60 &&
+    sell >= buy + 20
   ) {
 
     bias =
@@ -1776,12 +2175,15 @@ function calculateBias(
     strength =
       sell;
 
-  } else {
 
-    /*
-    A smaller difference is
-    intentionally classified as RANGE.
-    */
+  /*
+  RANGE
+
+  Even if individual indicators disagree,
+  the market is not assigned a false direction.
+  */
+
+  } else {
 
     bias =
       "RANGE";
@@ -1816,11 +2218,12 @@ function calculateBias(
 
 
 // ========================================================
-// SETUP FORMATION
+// SETUP ENGINE V4
 // ========================================================
 
 function detectSetupFormation(
   bias,
+  trend5m,
   structure1m,
   liquidity1m,
   fvg1m,
@@ -1829,259 +2232,465 @@ function detectSetupFormation(
   emaState
 ) {
 
-  var bullish = 0;
+  var bullishContinuation = 0;
+  var bearishContinuation = 0;
 
-  var bearish = 0;
+  var bullishReversal = 0;
+  var bearishReversal = 0;
 
 
   /*
-  BULLISH CONDITIONS
+  ========================================================
+  CONTINUATION
+  ========================================================
+  */
+
+
+  /*
+  BULLISH CONTINUATION
+
+  Requires actual bullish market evidence.
   */
 
   if (
     bias.bias ===
     "BULLISH"
   ) {
-    bullish += 30;
+
+    bullishContinuation += 30;
   }
+
+
+  if (
+    trend5m.direction ===
+      "BULLISH" &&
+    trend5m.strength >= 20
+  ) {
+
+    bullishContinuation += 20;
+  }
+
 
   if (
     structure1m.direction ===
     "BULLISH"
   ) {
-    bullish += 20;
+
+    bullishContinuation += 25;
   }
+
 
   if (
     emaState ===
     "Bullish"
   ) {
-    bullish += 10;
+
+    bullishContinuation += 10;
   }
+
+
+  if (
+    momentum10s.direction ===
+    "BULLISH" &&
+    momentum10s.strength >= 40
+  ) {
+
+    bullishContinuation += 15;
+  }
+
 
   if (
     fvg1m.direction ===
       "BULLISH FVG" &&
-    fvg1m.active
+    fvg1m.active &&
+    fvg1m.strength >= 40
   ) {
-    bullish += 15;
-  }
 
-  if (
-    momentum10s.direction ===
-    "BULLISH"
-  ) {
-    bullish += 15;
-  }
-
-  if (
-    liquidity1m.direction ===
-      "SELL-SIDE SWEEP" &&
-    liquidity1m.age <= 4
-  ) {
-    bullish += 20;
-  }
-
-  if (
-    rsiContext.recoveryDirection ===
-    "BULLISH"
-  ) {
-    bullish += 10;
+    bullishContinuation += 10;
   }
 
 
   /*
-  BEARISH CONDITIONS
+  BEARISH CONTINUATION
   */
 
   if (
     bias.bias ===
     "BEARISH"
   ) {
-    bearish += 30;
+
+    bearishContinuation += 30;
   }
+
+
+  if (
+    trend5m.direction ===
+      "BEARISH" &&
+    trend5m.strength >= 20
+  ) {
+
+    bearishContinuation += 20;
+  }
+
 
   if (
     structure1m.direction ===
     "BEARISH"
   ) {
-    bearish += 20;
+
+    bearishContinuation += 25;
   }
+
 
   if (
     emaState ===
     "Bearish"
   ) {
-    bearish += 10;
+
+    bearishContinuation += 10;
   }
+
+
+  if (
+    momentum10s.direction ===
+    "BEARISH" &&
+    momentum10s.strength >= 40
+  ) {
+
+    bearishContinuation += 15;
+  }
+
 
   if (
     fvg1m.direction ===
       "BEARISH FVG" &&
-    fvg1m.active
+    fvg1m.active &&
+    fvg1m.strength >= 40
   ) {
-    bearish += 15;
+
+    bearishContinuation += 10;
   }
-
-  if (
-    momentum10s.direction ===
-    "BEARISH"
-  ) {
-    bearish += 15;
-  }
-
-  if (
-    liquidity1m.direction ===
-      "BUY-SIDE SWEEP" &&
-    liquidity1m.age <= 4
-  ) {
-    bearish += 20;
-  }
-
-  if (
-    rsiContext.recoveryDirection ===
-    "BEARISH"
-  ) {
-    bearish += 10;
-  }
-
-
-  bullish =
-    clamp(
-      bullish,
-      0,
-      100
-    );
-
-  bearish =
-    clamp(
-      bearish,
-      0,
-      100
-    );
 
 
   /*
-  BULLISH FORMING
+  ========================================================
+  REVERSALS
+  ========================================================
+
+  A sweep is only the FIRST condition.
+
+  Bullish reversal:
+  SELL-SIDE SWEEP
+  + bullish reaction evidence
+
+  Bearish reversal:
+  BUY-SIDE SWEEP
+  + bearish reaction evidence
+
+  This prevents the exact problem seen in the V3.3 result.
   */
 
-  if (
-    bullish >= 55 &&
-    bullish > bearish + 10
-  ) {
-
-    return {
-
-      type:
-        "BULLISH CONTINUATION FORMING",
-
-      direction:
-        "BUY",
-
-      score:
-        bullish
-    };
-  }
-
 
   /*
-  BEARISH FORMING
-  */
-
-  if (
-    bearish >= 55 &&
-    bearish > bullish + 10
-  ) {
-
-    return {
-
-      type:
-        "BEARISH CONTINUATION FORMING",
-
-      direction:
-        "SELL",
-
-      score:
-        bearish
-    };
-  }
-
-
-  /*
-  REVERSAL FORMING
+  BULLISH REVERSAL
   */
 
   if (
     liquidity1m.direction ===
       "SELL-SIDE SWEEP" &&
     liquidity1m.age <= 4 &&
-    (
-      structure1m.direction ===
-      "BULLISH" ||
-      momentum10s.direction ===
-      "BULLISH"
-    )
+    liquidity1m.strength >= 35
   ) {
 
-    return {
+    bullishReversal += 25;
 
-      type:
-        "BULLISH REVERSAL FORMING",
 
-      direction:
-        "BUY",
+    if (
+      structure1m.direction ===
+      "BULLISH"
+    ) {
 
-      score:
-        Math.max(
-          bullish,
-          55
-        )
-    };
+      bullishReversal += 30;
+    }
+
+
+    if (
+      momentum10s.direction ===
+      "BULLISH" &&
+      momentum10s.strength >= 40
+    ) {
+
+      bullishReversal += 25;
+    }
+
+
+    if (
+      rsiContext.recoveryDirection ===
+      "BULLISH"
+    ) {
+
+      bullishReversal += 15;
+    }
+
+
+    if (
+      emaState ===
+      "Bullish"
+    ) {
+
+      bullishReversal += 10;
+    }
+
+
+    if (
+      fvg1m.direction ===
+        "BULLISH FVG" &&
+      fvg1m.active &&
+      fvg1m.strength >= 40
+    ) {
+
+      bullishReversal += 10;
+    }
+
   }
 
+
+  /*
+  BEARISH REVERSAL
+  */
 
   if (
     liquidity1m.direction ===
       "BUY-SIDE SWEEP" &&
     liquidity1m.age <= 4 &&
-    (
-      structure1m.direction ===
-      "BEARISH" ||
-      momentum10s.direction ===
-      "BEARISH"
-    )
+    liquidity1m.strength >= 35
   ) {
 
-    return {
+    bearishReversal += 25;
 
+
+    if (
+      structure1m.direction ===
+      "BEARISH"
+    ) {
+
+      bearishReversal += 30;
+    }
+
+
+    if (
+      momentum10s.direction ===
+      "BEARISH" &&
+      momentum10s.strength >= 40
+    ) {
+
+      bearishReversal += 25;
+    }
+
+
+    if (
+      rsiContext.recoveryDirection ===
+      "BEARISH"
+    ) {
+
+      bearishReversal += 15;
+    }
+
+
+    if (
+      emaState ===
+      "Bearish"
+    ) {
+
+      bearishReversal += 10;
+    }
+
+
+    if (
+      fvg1m.direction ===
+        "BEARISH FVG" &&
+      fvg1m.active &&
+      fvg1m.strength >= 40
+    ) {
+
+      bearishReversal += 10;
+    }
+
+  }
+
+
+  /*
+  ========================================================
+  DETERMINE BEST SETUP
+  ========================================================
+  */
+
+  var candidates = [
+
+    {
       type:
-        "BEARISH REVERSAL FORMING",
+        "BULLISH CONTINUATION",
+
+      direction:
+        "BUY",
+
+      score:
+        bullishContinuation
+    },
+
+    {
+      type:
+        "BEARISH CONTINUATION",
 
       direction:
         "SELL",
 
       score:
-        Math.max(
-          bearish,
-          55
-        )
+        bearishContinuation
+    },
+
+    {
+      type:
+        "BULLISH REVERSAL",
+
+      direction:
+        "BUY",
+
+      score:
+        bullishReversal
+    },
+
+    {
+      type:
+        "BEARISH REVERSAL",
+
+      direction:
+        "SELL",
+
+      score:
+        bearishReversal
+    }
+
+  ];
+
+
+  candidates.sort(
+    function(a, b) {
+      return b.score - a.score;
+    }
+  );
+
+
+  var best =
+    candidates[0];
+
+
+  var second =
+    candidates[1];
+
+
+  /*
+  ========================================================
+  RANGE PROTECTION
+  ========================================================
+
+  When the market is RANGE, a setup needs significantly
+  stronger evidence.
+
+  This prevents a single sweep from becoming a setup.
+  */
+
+  if (
+    bias.bias ===
+    "RANGE"
+  ) {
+
+    if (
+      best.score < 70 ||
+      best.score <
+        second.score + 15
+    ) {
+
+      return {
+
+        type:
+          "NO CLEAR SETUP",
+
+        direction:
+          "WAIT",
+
+        score:
+          best.score,
+
+        setupState:
+          "NONE",
+
+        reason:
+          "Market bias is RANGE and no sufficiently dominant setup has formed."
+      };
+    }
+
+  }
+
+
+  /*
+  ========================================================
+  NORMAL MARKET PROTECTION
+  ========================================================
+  */
+
+  if (
+    best.score < 60 ||
+    best.score <
+      second.score + 10
+  ) {
+
+    return {
+
+      type:
+        "NO CLEAR SETUP",
+
+      direction:
+        "WAIT",
+
+      score:
+        best.score,
+
+      setupState:
+        "NONE",
+
+      reason:
+        "Directional conditions are not sufficiently dominant."
     };
   }
 
 
+  /*
+  ========================================================
+  SETUP FORMING
+  ========================================================
+  */
+
   return {
 
     type:
-      "NO CLEAR SETUP",
+      best.type,
 
     direction:
-      "WAIT",
+      best.direction,
 
     score:
-      Math.max(
-        bullish,
-        bearish
-      )
+      clamp(
+        best.score,
+        0,
+        100
+      ),
+
+    setupState:
+      "DEVELOPING",
+
+    reason:
+      "A directional setup is developing, but entry confirmation is still required."
   };
 }
 
@@ -2097,16 +2706,36 @@ function calculateTrigger(
   rsiContext
 ) {
 
+  if (
+    direction !== "BUY" &&
+    direction !== "SELL"
+  ) {
+
+    return {
+
+      score:
+        0,
+
+      quality:
+        "NONE",
+
+      confirmed:
+        false
+    };
+  }
+
+
   var expected =
     direction === "BUY"
       ? "BULLISH"
       : "BEARISH";
 
+
   var score = 0;
 
 
   /*
-  BOS
+  10S BOS
   */
 
   if (
@@ -2114,17 +2743,18 @@ function calculateTrigger(
     expected
   ) {
 
-    score += 55;
+    score += 60;
   }
 
 
   /*
-  MOMENTUM
+  10S MOMENTUM
   */
 
   if (
     momentum10s.direction ===
-    expected
+    expected &&
+    momentum10s.strength >= 40
   ) {
 
     score += 30;
@@ -2132,7 +2762,9 @@ function calculateTrigger(
 
 
   /*
-  RSI RECOVERY
+  RSI
+
+  Supporting evidence only.
   */
 
   if (
@@ -2140,7 +2772,7 @@ function calculateTrigger(
     expected
   ) {
 
-    score += 15;
+    score += 10;
   }
 
 
@@ -2155,20 +2787,36 @@ function calculateTrigger(
   var quality =
     "WEAK";
 
+
   if (
-    score >= 80
+    score >= 90
   ) {
 
     quality =
       "STRONG";
 
   } else if (
-    score >= 50
+    score >= 60
   ) {
 
     quality =
       "MODERATE";
   }
+
+
+  /*
+  FINAL TRIGGER
+
+  Both BOS and matching momentum are mandatory.
+  RSI cannot replace either one.
+  */
+
+  var confirmed =
+    structure10s.bosDirection ===
+      expected &&
+    momentum10s.direction ===
+      expected &&
+    momentum10s.strength >= 40;
 
 
   return {
@@ -2180,11 +2828,7 @@ function calculateTrigger(
       quality,
 
     confirmed:
-      score >= 70 &&
-      structure10s.bosDirection ===
-        expected &&
-      momentum10s.direction ===
-        expected
+      confirmed
   };
 }
 
@@ -2207,15 +2851,20 @@ function calculateLevels(
 
     return {
 
-      entry: null,
+      entry:
+        null,
 
-      stopLoss: null,
+      stopLoss:
+        null,
 
-      takeProfit: null,
+      takeProfit:
+        null,
 
-      rr: 0
+      rr:
+        0
     };
   }
+
 
   var recent =
     candles.slice(
@@ -2225,45 +2874,57 @@ function calculateLevels(
       )
     );
 
+
   var entry =
     candles[
       candles.length - 1
     ].close;
 
+
   var low =
     Math.min.apply(
       null,
-      recent.map(function(c) {
-        return c.low;
-      })
+      recent.map(
+        function(c) {
+          return c.low;
+        }
+      )
     );
+
 
   var high =
     Math.max.apply(
       null,
-      recent.map(function(c) {
-        return c.high;
-      })
+      recent.map(
+        function(c) {
+          return c.high;
+        }
+      )
     );
+
 
   var buffer =
     atrValue * 0.35;
 
-  var stopLoss;
 
+  var stopLoss;
   var takeProfit;
 
 
   if (
-    direction === "BUY"
+    direction ===
+    "BUY"
   ) {
 
     stopLoss =
-      low - buffer;
+      low -
+      buffer;
+
 
     var risk =
       entry -
       stopLoss;
+
 
     if (
       risk <= 0
@@ -2288,18 +2949,23 @@ function calculateLevels(
       };
     }
 
+
     takeProfit =
       entry +
       risk * 2;
 
+
   } else {
 
     stopLoss =
-      high + buffer;
+      high +
+      buffer;
+
 
     var sellRisk =
       stopLoss -
       entry;
+
 
     if (
       sellRisk <= 0
@@ -2324,10 +2990,12 @@ function calculateLevels(
       };
     }
 
+
     takeProfit =
       entry -
       sellRisk * 2;
   }
+
 
   return {
 
@@ -2367,6 +3035,7 @@ async function analyse(symbol) {
       HISTORY_BATCHES
     );
 
+
   if (
     !ticks ||
     ticks.length < 100
@@ -2379,7 +3048,9 @@ async function analyse(symbol) {
 
 
   /*
+  ========================================================
   TIMEFRAMES
+  ========================================================
   */
 
   var candles10s =
@@ -2388,11 +3059,13 @@ async function analyse(symbol) {
       10
     );
 
+
   var candles1m =
     buildCandles(
       ticks,
       60
     );
+
 
   var candles5m =
     buildCandles(
@@ -2414,7 +3087,9 @@ async function analyse(symbol) {
 
 
   /*
-  5M
+  ========================================================
+  5M MARKET
+  ========================================================
   */
 
   var trend5m =
@@ -2424,7 +3099,9 @@ async function analyse(symbol) {
 
 
   /*
-  1M
+  ========================================================
+  1M MARKET
+  ========================================================
   */
 
   var structure1m =
@@ -2432,25 +3109,30 @@ async function analyse(symbol) {
       candles1m
     );
 
+
   var liquidity1m =
     detectLiquiditySweep(
       candles1m
     );
+
 
   var fvg1m =
     detectFVG(
       candles1m
     );
 
+
   var emaState =
     getEMAState(
       candles1m
     );
 
+
   var rsiContext =
     getRSIContext(
       candles1m
     );
+
 
   var atrValue =
     atr(
@@ -2460,13 +3142,16 @@ async function analyse(symbol) {
 
 
   /*
-  10S
+  ========================================================
+  10S TRIGGER
+  ========================================================
   */
 
   var structure10s =
     getStructure(
       candles10s
     );
+
 
   var momentum10s =
     getMomentum(
@@ -2475,7 +3160,9 @@ async function analyse(symbol) {
 
 
   /*
-  BIAS
+  ========================================================
+  MARKET BIAS
+  ========================================================
   */
 
   var bias =
@@ -2489,12 +3176,15 @@ async function analyse(symbol) {
 
 
   /*
+  ========================================================
   SETUP
+  ========================================================
   */
 
   var setup =
     detectSetupFormation(
       bias,
+      trend5m,
       structure1m,
       liquidity1m,
       fvg1m,
@@ -2505,46 +3195,9 @@ async function analyse(symbol) {
 
 
   /*
-  DEFAULT
-  */
-
-  var action =
-    "WAIT";
-
-  var marketState =
-    "WAIT";
-
-  var setupType =
-    "NO CONFIRMED SETUP";
-
-  var confidence =
-    "LOW";
-
-  var score =
-    0;
-
-  var confirmations =
-    0;
-
-  var levels = {
-
-    entry: null,
-
-    stopLoss: null,
-
-    takeProfit: null,
-
-    rr: 0
-  };
-
-  var reason =
-    "Conditions are not sufficiently aligned.";
-
-  var watchFor = [];
-
-
-  /*
+  ========================================================
   TRIGGER
+  ========================================================
   */
 
   var trigger =
@@ -2557,7 +3210,67 @@ async function analyse(symbol) {
 
 
   /*
-  SETUP FORMING
+  ========================================================
+  DEFAULT RESULT
+  ========================================================
+  */
+
+  var action =
+    "WAIT";
+
+
+  var marketState =
+    "WAIT";
+
+
+  var setupType =
+    "NO CONFIRMED SETUP";
+
+
+  var setupState =
+    setup.setupState ||
+    "NONE";
+
+
+  var confidence =
+    "LOW";
+
+
+  var score =
+    0;
+
+
+  var confirmations =
+    0;
+
+
+  var levels = {
+
+    entry:
+      null,
+
+    stopLoss:
+      null,
+
+    takeProfit:
+      null,
+
+    rr:
+      0
+  };
+
+
+  var reason =
+    "Conditions are not sufficiently aligned.";
+
+
+  var watchFor = [];
+
+
+  /*
+  ========================================================
+  SETUP EXISTS
+  ========================================================
   */
 
   if (
@@ -2567,18 +3280,18 @@ async function analyse(symbol) {
       "SELL"
   ) {
 
-    marketState =
-      "SETUP_FORMING";
-
     setupType =
       setup.type;
+
 
     score =
       setup.score;
 
 
     /*
-    CONFIRMATION
+    ======================================================
+    TRIGGER CONFIRMED
+    ======================================================
     */
 
     if (
@@ -2588,22 +3301,29 @@ async function analyse(symbol) {
       action =
         setup.direction;
 
+
       marketState =
         "TRIGGER_CONFIRMED";
 
+
+      setupState =
+        "CONFIRMED";
+
+
+      setupType =
+        setup.type;
+
+
       confidence =
-        score >= 80 &&
-        trigger.score >= 80
+        score >= 85 &&
+        trigger.score >= 90
           ? "HIGH"
           : "MEDIUM";
 
-      setupType =
-        setup.type.replace(
-          " FORMING",
-          ""
-        );
 
-      confirmations = 4;
+      confirmations =
+        4;
+
 
       levels =
         calculateLevels(
@@ -2619,26 +3339,41 @@ async function analyse(symbol) {
       ) {
 
         reason =
-          "Bullish setup conditions aligned and the 10-second trigger confirmed the entry.";
+          "Bullish setup conditions aligned and the 10-second BOS with matching momentum confirmed the entry.";
 
       } else {
 
         reason =
-          "Bearish setup conditions aligned and the 10-second trigger confirmed the entry.";
+          "Bearish setup conditions aligned and the 10-second BOS with matching momentum confirmed the entry.";
       }
+
+
+    /*
+    ======================================================
+    SETUP DEVELOPING
+    ======================================================
+    */
 
     } else {
 
       action =
         "WAIT";
 
+
       marketState =
         "SETUP_FORMING";
+
+
+      setupState =
+        "DEVELOPING";
+
 
       confidence =
         "LOW";
 
-      confirmations = 0;
+
+      confirmations =
+        0;
 
 
       if (
@@ -2647,27 +3382,60 @@ async function analyse(symbol) {
       ) {
 
         reason =
-          "Bullish conditions are developing, but the entry trigger is not confirmed.";
+          "A bullish setup is developing, but the 10-second entry trigger is not confirmed.";
 
       } else {
 
         reason =
-          "Bearish conditions are developing, but the entry trigger is not confirmed.";
+          "A bearish setup is developing, but the 10-second entry trigger is not confirmed.";
       }
+
     }
 
+
   } else {
+
+    /*
+    ======================================================
+    NO SETUP
+    ======================================================
+    */
+
+    action =
+      "WAIT";
+
 
     marketState =
       "WAIT";
 
+
     setupType =
-      "NO CONFIRMED SETUP";
+      "NO CLEAR SETUP";
+
+
+    setupState =
+      "NONE";
+
+
+    score =
+      setup.score;
+
+
+    confidence =
+      "LOW";
+
+
+    reason =
+      setup.reason ||
+      "Conditions are not sufficiently aligned.";
+
   }
 
 
   /*
+  ========================================================
   WATCH FOR
+  ========================================================
   */
 
   if (
@@ -2676,8 +3444,34 @@ async function analyse(symbol) {
   ) {
 
     watchFor.push(
-      "5M directional breakout"
+      "Clear directional bias"
     );
+
+  }
+
+
+  if (
+    trend5m.direction ===
+      "BULLISH" &&
+    trend5m.strength < 20
+  ) {
+
+    watchFor.push(
+      "Stronger 5M trend"
+    );
+
+  }
+
+
+  if (
+    structure1m.direction ===
+    "RANGE"
+  ) {
+
+    watchFor.push(
+      "1M directional structure"
+    );
+
   }
 
 
@@ -2689,6 +3483,7 @@ async function analyse(symbol) {
     watchFor.push(
       "1M directional BOS"
     );
+
   }
 
 
@@ -2699,19 +3494,70 @@ async function analyse(symbol) {
     watchFor.push(
       "Stronger entry trigger"
     );
+
+  }
+
+
+  if (
+    structure10s.bosDirection ===
+    "NONE"
+  ) {
+
+    watchFor.push(
+      "10S trigger BOS"
+    );
+
   }
 
 
   if (
     momentum10s.direction ===
-    "NEUTRAL"
+      "NEUTRAL" ||
+    momentum10s.strength < 40
   ) {
 
     watchFor.push(
       "Momentum confirmation"
     );
+
   }
 
+
+  /*
+  Reversal-specific monitoring.
+  */
+
+  if (
+    setup.type ===
+      "BEARISH REVERSAL" &&
+    structure1m.direction !==
+      "BEARISH"
+  ) {
+
+    watchFor.push(
+      "Bearish 1M reaction after liquidity sweep"
+    );
+
+  }
+
+
+  if (
+    setup.type ===
+      "BULLISH REVERSAL" &&
+    structure1m.direction !==
+      "BULLISH"
+  ) {
+
+    watchFor.push(
+      "Bullish 1M reaction after liquidity sweep"
+    );
+
+  }
+
+
+  /*
+  FVG
+  */
 
   if (
     fvg1m.direction ===
@@ -2721,28 +3567,24 @@ async function analyse(symbol) {
     watchFor.push(
       "Active FVG"
     );
+
   }
 
 
   /*
-  REMOVE DUPLICATES
+  Remove duplicates.
   */
 
   watchFor =
-    watchFor.filter(
-      function(item, index, array) {
-
-        return (
-          array.indexOf(item) ===
-          index
-        );
-
-      }
+    uniqueArray(
+      watchFor
     );
 
 
   /*
-  RESPONSE
+  ========================================================
+  FINAL RESPONSE
+  ========================================================
   */
 
   return {
@@ -2750,17 +3592,25 @@ async function analyse(symbol) {
     success:
       true,
 
+
     symbol:
       symbol,
+
 
     dataSource:
       "Deriv public market data",
 
+
     mode:
       "paper analysis only",
 
+
     version:
-      "V3.4",
+      "V4-FINAL",
+
+
+    frozen:
+      true,
 
 
     history: {
@@ -2770,6 +3620,7 @@ async function analyse(symbol) {
 
       batches:
         HISTORY_BATCHES
+
     },
 
 
@@ -2783,10 +3634,15 @@ async function analyse(symbol) {
 
       fiveMinute:
         candles5m.length
+
     },
 
 
     analysis: {
+
+      /*
+      MARKET BIAS
+      */
 
       bias:
         bias.bias,
@@ -2800,11 +3656,21 @@ async function analyse(symbol) {
       sellBias:
         bias.sellBias,
 
+
+      /*
+      5M
+      */
+
       trend5m:
         trend5m.direction,
 
       trend5mStrength:
         trend5m.strength,
+
+
+      /*
+      1M STRUCTURE
+      */
 
       structure1m:
         structure1m.direction,
@@ -2815,8 +3681,18 @@ async function analyse(symbol) {
       bosDirection:
         structure1m.bosDirection,
 
+
+      /*
+      10S TRIGGER STRUCTURE
+      */
+
       triggerBosDirection:
         structure10s.bosDirection,
+
+
+      /*
+      LIQUIDITY
+      */
 
       liquidity:
         liquidity1m.direction,
@@ -2827,23 +3703,44 @@ async function analyse(symbol) {
       liquidityAge:
         liquidity1m.age,
 
+
+      /*
+      FVG
+      */
+
       fvg:
         fvg1m.direction,
 
       fvgStrength:
         fvg1m.strength,
 
+      fvgRawStrength:
+        fvg1m.rawStrength,
+
       fvgAge:
         fvg1m.age,
 
+      fvgFreshness:
+        fvg1m.freshness,
+
       fvgActive:
         fvg1m.active,
+
+
+      /*
+      MOMENTUM
+      */
 
       momentum:
         momentum10s.direction,
 
       momentumStrength:
         momentum10s.strength,
+
+
+      /*
+      TRIGGER
+      */
 
       triggerQuality:
         trigger.quality,
@@ -2854,8 +3751,18 @@ async function analyse(symbol) {
       triggerConfirmed:
         trigger.confirmed,
 
+
+      /*
+      EMA
+      */
+
       ema:
         emaState,
+
+
+      /*
+      RSI
+      */
 
       rsi:
         rsiContext.value !== null
@@ -2874,6 +3781,11 @@ async function analyse(symbol) {
       rsiRecoveryDirection:
         rsiContext.recoveryDirection,
 
+
+      /*
+      ATR
+      */
+
       atr:
         atrValue !== null
           ? roundNumber(
@@ -2881,6 +3793,7 @@ async function analyse(symbol) {
               5
             )
           : null
+
     },
 
 
@@ -2894,6 +3807,9 @@ async function analyse(symbol) {
 
       setupType:
         setupType,
+
+      setupState:
+        setupState,
 
       confidence:
         confidence,
@@ -2921,7 +3837,9 @@ async function analyse(symbol) {
 
       watchFor:
         watchFor
+
     }
+
   };
 }
 
@@ -2946,10 +3864,14 @@ app.get(
         "online",
 
       version:
-        "V3.4",
+        "V4-FINAL",
+
+      frozen:
+        true,
 
       mode:
         "paper analysis only"
+
     });
 
   }
@@ -2972,25 +3894,31 @@ app.get(
           DEFAULT_SYMBOL
         ).trim();
 
+
       if (!symbol) {
 
         symbol =
           DEFAULT_SYMBOL;
+
       }
 
+
       console.log(
-        "Keamz Fx V3.4 analysing: " +
+        "Keamz Fx V4-FINAL analysing: " +
         symbol
       );
+
 
       var result =
         await analyse(
           symbol
         );
 
+
       res.json(
         result
       );
+
 
     } catch (error) {
 
@@ -2998,6 +3926,7 @@ app.get(
         "Signal error:",
         error
       );
+
 
       res.status(500).json({
 
@@ -3009,11 +3938,16 @@ app.get(
           "Analysis failed.",
 
         version:
-          "V3.4",
+          "V4-FINAL",
+
+        frozen:
+          true,
 
         mode:
           "paper analysis only"
+
       });
+
     }
 
   }
@@ -3030,7 +3964,7 @@ app.listen(
   function() {
 
     console.log(
-      "Keamz Fx V3.4 running on port " +
+      "Keamz Fx V4-FINAL running on port " +
       PORT
     );
 
