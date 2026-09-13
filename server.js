@@ -15,45 +15,30 @@ const TICKS_PER_BATCH = 1000;
 
 /*
 ==========================================================
- KEAMZ FX V4 FINAL / FROZEN
+ KEAMZ FX V3.4 FINAL
 ==========================================================
 
 5M  = MARKET BIAS
-1M  = MARKET STRUCTURE + SETUP
+1M  = SETUP / STRUCTURE
 10S = ENTRY TRIGGER
 
-DECISION ARCHITECTURE
+FINAL RULES:
 
-1. MARKET BIAS
-   Determines whether the broader environment is:
-   BULLISH / BEARISH / RANGE
-
-2. SETUP
-   Determines whether a continuation or reversal
-   is actually developing.
-
-3. TRIGGER
-   Determines whether an entry is confirmed.
-
-4. ACTION
-   BUY / SELL is ONLY allowed after trigger confirmation.
+• Strong 5M bias required for normal continuation setups
+• RANGE markets do not automatically become directional
+• Liquidity sweep alone cannot create a setup
+• Reversal requires independent confirmation
+• Old FVGs lose influence
+• Very old FVGs are ignored
+• Momentum must support the setup
+• 10S BOS + matching momentum required for entry
+• No BUY/SELL without trigger confirmation
+• Conservative WAIT behaviour
+• Dynamic instrument support
+• Paper analysis only
 
 IMPORTANT:
-
-• Liquidity sweep alone NEVER creates a setup.
-• FVG alone NEVER creates a setup.
-• Momentum alone NEVER creates a setup.
-• RSI alone NEVER creates a setup.
-• RANGE conditions suppress weak directional setups.
-• Reversal requires evidence that price is actually
-  beginning to move away from the swept liquidity.
-• BUY/SELL requires directional setup + 10S BOS +
-  matching momentum.
-• Levels are generated only after confirmation.
-
-This system is PAPER ANALYSIS ONLY.
-It does not execute trades.
-It does not guarantee profitable trades.
+This system does NOT guarantee profitable trades.
 ==========================================================
 */
 
@@ -83,16 +68,6 @@ function roundNumber(value, decimals) {
   var factor = Math.pow(10, decimals || 2);
 
   return Math.round(value * factor) / factor;
-}
-
-
-function uniqueArray(array) {
-
-  return array.filter(
-    function(item, index) {
-      return array.indexOf(item) === index;
-    }
-  );
 }
 
 
@@ -247,11 +222,7 @@ async function getDerivTicks(symbol, batches) {
   var endTime = "latest";
 
 
-  for (
-    var i = 0;
-    i < batches;
-    i++
-  ) {
+  for (var i = 0; i < batches; i++) {
 
     var batch =
       await getDerivHistoryBatch(
@@ -276,13 +247,8 @@ async function getDerivTicks(symbol, batches) {
     ) {
 
       allTicks.push({
-
-        time:
-          Number(batch.times[j]),
-
-        price:
-          Number(batch.prices[j])
-
+        time: Number(batch.times[j]),
+        price: Number(batch.prices[j])
       });
 
     }
@@ -291,11 +257,9 @@ async function getDerivTicks(symbol, batches) {
     var oldest =
       Math.min.apply(
         null,
-        batch.times.map(
-          function(t) {
-            return Number(t);
-          }
-        )
+        batch.times.map(function(t) {
+          return Number(t);
+        })
       );
 
 
@@ -313,23 +277,19 @@ async function getDerivTicks(symbol, batches) {
 
 
   allTicks =
-    allTicks.filter(
-      function(tick) {
+    allTicks.filter(function(tick) {
 
-        return (
-          Number.isFinite(tick.time) &&
-          Number.isFinite(tick.price)
-        );
+      return (
+        Number.isFinite(tick.time) &&
+        Number.isFinite(tick.price)
+      );
 
-      }
-    );
+    });
 
 
-  allTicks.sort(
-    function(a, b) {
-      return a.time - b.time;
-    }
-  );
+  allTicks.sort(function(a, b) {
+    return a.time - b.time;
+  });
 
 
   var unique = [];
@@ -390,8 +350,7 @@ function buildCandles(ticks, seconds) {
     i++
   ) {
 
-    var tick =
-      ticks[i];
+    var tick = ticks[i];
 
 
     var bucket =
@@ -441,24 +400,17 @@ function buildCandles(ticks, seconds) {
 
       current = {
 
-        time:
-          bucket,
+        time: bucket,
 
-        open:
-          tick.price,
+        open: tick.price,
 
-        high:
-          tick.price,
+        high: tick.price,
 
-        low:
-          tick.price,
+        low: tick.price,
 
-        close:
-          tick.price,
+        close: tick.price,
 
-        lastPrice:
-          tick.price
-
+        lastPrice: tick.price
       };
 
 
@@ -570,7 +522,6 @@ function ema(candles, period) {
         (candles[j].close - value) *
         multiplier
       ) + value;
-
   }
 
 
@@ -615,7 +566,6 @@ function rsi(candles, period) {
 
       losses +=
         Math.abs(change);
-
     }
 
   }
@@ -666,7 +616,6 @@ function rsi(candles, period) {
         (period - 1) +
         loss
       ) / period;
-
   }
 
 
@@ -713,6 +662,7 @@ function atr(candles, period) {
     var current =
       candles[i];
 
+
     var previous =
       candles[i - 1];
 
@@ -740,7 +690,9 @@ function atr(candles, period) {
   }
 
 
-  if (trs.length < period) {
+  if (
+    trs.length < period
+  ) {
     return null;
   }
 
@@ -754,7 +706,8 @@ function atr(candles, period) {
     j++
   ) {
 
-    value += trs[j];
+    value +=
+      trs[j];
   }
 
 
@@ -774,7 +727,6 @@ function atr(candles, period) {
         (period - 1) +
         trs[k]
       ) / period;
-
   }
 
 
@@ -949,8 +901,12 @@ function getStructure(candles) {
   }
 
 
-  var swingHigh = null;
-  var swingLow = null;
+  var swingHigh =
+    null;
+
+
+  var swingLow =
+    null;
 
 
   var start =
@@ -1016,7 +972,9 @@ function getStructure(candles) {
     atrValue * 0.08;
 
 
-  var bos = false;
+  var bos =
+    false;
+
 
   var bosDirection =
     "NONE";
@@ -1030,7 +988,8 @@ function getStructure(candles) {
       swingHigh + buffer
   ) {
 
-    bos = true;
+    bos =
+      true;
 
     bosDirection =
       "BULLISH";
@@ -1045,7 +1004,8 @@ function getStructure(candles) {
       swingLow - buffer
   ) {
 
-    bos = true;
+    bos =
+      true;
 
     bosDirection =
       "BEARISH";
@@ -1075,8 +1035,14 @@ function getStructure(candles) {
     "RANGE";
 
 
-  var structureAtr =
-    atr(candles, 14) || 0;
+  /*
+  Require meaningful movement
+  rather than treating every tiny
+  change as structure.
+  */
+
+  var structureATR =
+    atrValue || 0;
 
 
   var movement =
@@ -1087,7 +1053,7 @@ function getStructure(candles) {
 
   if (
     movement >
-    structureAtr * 0.35
+    structureATR * 0.20
   ) {
 
     if (
@@ -1096,8 +1062,10 @@ function getStructure(candles) {
 
       direction =
         "BULLISH";
+    }
 
-    } else if (
+
+    if (
       lastClose < first
     ) {
 
@@ -1198,10 +1166,6 @@ function detectLiquiditySweep(candles) {
 
     /*
     BUY-SIDE SWEEP
-
-    Price takes highs and closes back below.
-    This is potential bearish reversal evidence,
-    NOT automatic bearish confirmation.
     */
 
     if (
@@ -1267,9 +1231,6 @@ function detectLiquiditySweep(candles) {
 
     /*
     SELL-SIDE SWEEP
-
-    Price takes lows and closes back above.
-    This is potential bullish reversal evidence.
     */
 
     if (
@@ -1364,14 +1325,14 @@ function detectFVG(candles) {
       age:
         null,
 
+      freshness:
+        "NONE",
+
       gap:
         0,
 
       active:
-        false,
-
-      freshness:
-        "NONE"
+        false
     };
   }
 
@@ -1390,21 +1351,21 @@ function detectFVG(candles) {
     age:
       null,
 
+    freshness:
+      "NONE",
+
     gap:
       0,
 
     active:
-      false,
-
-    freshness:
-      "NONE"
+      false
   };
 
 
   var start =
     Math.max(
       2,
-      candles.length - 12
+      candles.length - 15
     );
 
 
@@ -1466,6 +1427,47 @@ function detectFVG(candles) {
         i;
 
 
+      /*
+      FRESHNESS
+      */
+
+      var freshness =
+        "AGING";
+
+
+      if (
+        age <= 2
+      ) {
+
+        freshness =
+          "FRESH";
+
+      } else if (
+        age <= 5
+      ) {
+
+        freshness =
+          "RECENT";
+
+      } else if (
+        age <= 9
+      ) {
+
+        freshness =
+          "AGING";
+
+      } else {
+
+        freshness =
+          "STALE";
+      }
+
+
+      /*
+      FVG must still be
+      structurally active.
+      */
+
       var active =
         candles[
           candles.length - 1
@@ -1473,31 +1475,57 @@ function detectFVG(candles) {
         left.high;
 
 
+      /*
+      Freshness penalty.
+      */
+
+      var adjustedStrength =
+        rawStrength;
+
+
       if (
-        active &&
-        rawStrength >=
-        best.rawStrength
+        age > 2
       ) {
 
-        var freshness =
-          age <= 3
-            ? "FRESH"
-            : age <= 6
-              ? "AGING"
-              : "OLD";
+        adjustedStrength *=
+          0.85;
+      }
 
 
-        var usableStrength =
-          freshness === "FRESH"
-            ? rawStrength
-            : freshness === "AGING"
-              ? Math.round(
-                  rawStrength * 0.65
-                )
-              : Math.round(
-                  rawStrength * 0.35
-                );
+      if (
+        age > 5
+      ) {
 
+        adjustedStrength *=
+          0.65;
+      }
+
+
+      if (
+        age > 9
+      ) {
+
+        adjustedStrength *=
+          0.25;
+      }
+
+
+      adjustedStrength =
+        Math.round(
+          adjustedStrength
+        );
+
+
+      /*
+      Stale FVG cannot become
+      a meaningful confirmation.
+      */
+
+      if (
+        active &&
+        adjustedStrength >=
+          best.strength
+      ) {
 
         best = {
 
@@ -1505,7 +1533,7 @@ function detectFVG(candles) {
             "BULLISH FVG",
 
           strength:
-            usableStrength,
+            adjustedStrength,
 
           rawStrength:
             rawStrength,
@@ -1513,14 +1541,14 @@ function detectFVG(candles) {
           age:
             age,
 
+          freshness:
+            freshness,
+
           gap:
             gap,
 
           active:
-            true,
-
-          freshness:
-            freshness
+            age <= 12
         };
       }
     }
@@ -1566,6 +1594,38 @@ function detectFVG(candles) {
         i;
 
 
+      var bearishFreshness =
+        "AGING";
+
+
+      if (
+        bearishAge <= 2
+      ) {
+
+        bearishFreshness =
+          "FRESH";
+
+      } else if (
+        bearishAge <= 5
+      ) {
+
+        bearishFreshness =
+          "RECENT";
+
+      } else if (
+        bearishAge <= 9
+      ) {
+
+        bearishFreshness =
+          "AGING";
+
+      } else {
+
+        bearishFreshness =
+          "STALE";
+      }
+
+
       var bearishActive =
         candles[
           candles.length - 1
@@ -1573,31 +1633,48 @@ function detectFVG(candles) {
         left.low;
 
 
+      var bearishAdjustedStrength =
+        bearishRawStrength;
+
+
       if (
-        bearishActive &&
-        bearishRawStrength >=
-        best.rawStrength
+        bearishAge > 2
       ) {
 
-        var bearishFreshness =
-          bearishAge <= 3
-            ? "FRESH"
-            : bearishAge <= 6
-              ? "AGING"
-              : "OLD";
+        bearishAdjustedStrength *=
+          0.85;
+      }
 
 
-        var bearishUsableStrength =
-          bearishFreshness === "FRESH"
-            ? bearishRawStrength
-            : bearishFreshness === "AGING"
-              ? Math.round(
-                  bearishRawStrength * 0.65
-                )
-              : Math.round(
-                  bearishRawStrength * 0.35
-                );
+      if (
+        bearishAge > 5
+      ) {
 
+        bearishAdjustedStrength *=
+          0.65;
+      }
+
+
+      if (
+        bearishAge > 9
+      ) {
+
+        bearishAdjustedStrength *=
+          0.25;
+      }
+
+
+      bearishAdjustedStrength =
+        Math.round(
+          bearishAdjustedStrength
+        );
+
+
+      if (
+        bearishActive &&
+        bearishAdjustedStrength >=
+          best.strength
+      ) {
 
         best = {
 
@@ -1605,7 +1682,7 @@ function detectFVG(candles) {
             "BEARISH FVG",
 
           strength:
-            bearishUsableStrength,
+            bearishAdjustedStrength,
 
           rawStrength:
             bearishRawStrength,
@@ -1613,14 +1690,14 @@ function detectFVG(candles) {
           age:
             bearishAge,
 
+          freshness:
+            bearishFreshness,
+
           gap:
             bearishGap,
 
           active:
-            true,
-
-          freshness:
-            bearishFreshness
+            bearishAge <= 12
         };
       }
     }
@@ -1663,8 +1740,12 @@ function getMomentum(candles) {
     );
 
 
-  var bullish = 0;
-  var bearish = 0;
+  var bullish =
+    0;
+
+
+  var bearish =
+    0;
 
 
   for (
@@ -1973,7 +2054,7 @@ function getEMAState(candles) {
 
 
 // ========================================================
-// FINAL MARKET BIAS
+// BIAS ENGINE
 // ========================================================
 
 function calculateBias(
@@ -1984,16 +2065,16 @@ function calculateBias(
   fvg1m
 ) {
 
-  var buy = 0;
-  var sell = 0;
+  var buy =
+    0;
+
+
+  var sell =
+    0;
 
 
   /*
   5M TREND
-
-  Strong trend gets more weight.
-  Very weak trend is not treated as a real
-  directional bias.
   */
 
   if (
@@ -2004,7 +2085,7 @@ function calculateBias(
     buy +=
       trend5m.strength >= 20
         ? 45
-        : 20;
+        : 25;
 
   } else if (
     trend5m.direction ===
@@ -2014,7 +2095,7 @@ function calculateBias(
     sell +=
       trend5m.strength >= 20
         ? 45
-        : 20;
+        : 25;
   }
 
 
@@ -2027,14 +2108,16 @@ function calculateBias(
     "BULLISH"
   ) {
 
-    buy += 25;
+    buy +=
+      25;
 
   } else if (
     structure1m.direction ===
     "BEARISH"
   ) {
 
-    sell += 25;
+    sell +=
+      25;
   }
 
 
@@ -2047,21 +2130,21 @@ function calculateBias(
     "Bullish"
   ) {
 
-    buy += 10;
+    buy +=
+      10;
 
   } else if (
     emaState ===
     "Bearish"
   ) {
 
-    sell += 10;
+    sell +=
+      10;
   }
 
 
   /*
   MOMENTUM
-
-  Weak momentum is deliberately capped.
   */
 
   if (
@@ -2070,9 +2153,7 @@ function calculateBias(
   ) {
 
     buy +=
-      momentum10s.strength >= 60
-        ? 10
-        : 5;
+      10;
 
   } else if (
     momentum10s.direction ===
@@ -2080,35 +2161,33 @@ function calculateBias(
   ) {
 
     sell +=
-      momentum10s.strength >= 60
-        ? 10
-        : 5;
+      10;
   }
 
 
   /*
   FVG
-
-  Old/weak FVG receives less influence.
   */
 
   if (
     fvg1m.direction ===
       "BULLISH FVG" &&
     fvg1m.active &&
-    fvg1m.strength >= 40
+    fvg1m.age <= 5
   ) {
 
-    buy += 10;
+    buy +=
+      10;
 
   } else if (
     fvg1m.direction ===
       "BEARISH FVG" &&
     fvg1m.active &&
-    fvg1m.strength >= 40
+    fvg1m.age <= 5
   ) {
 
-    sell += 10;
+    sell +=
+      10;
   }
 
 
@@ -2130,7 +2209,8 @@ function calculateBias(
 
   var difference =
     Math.abs(
-      buy - sell
+      buy -
+      sell
     );
 
 
@@ -2143,14 +2223,12 @@ function calculateBias(
 
 
   /*
-  REAL BULLISH BIAS
-
-  Requires meaningful score AND separation.
+  STRONG DIRECTIONAL BIAS
   */
 
   if (
     buy >= 60 &&
-    buy >= sell + 20
+    buy > sell + 20
   ) {
 
     bias =
@@ -2160,13 +2238,9 @@ function calculateBias(
       buy;
 
 
-  /*
-  REAL BEARISH BIAS
-  */
-
   } else if (
     sell >= 60 &&
-    sell >= buy + 20
+    sell > buy + 20
   ) {
 
     bias =
@@ -2176,17 +2250,16 @@ function calculateBias(
       sell;
 
 
-  /*
-  RANGE
-
-  Even if individual indicators disagree,
-  the market is not assigned a false direction.
-  */
-
   } else {
+
+    /*
+    Anything not clearly directional
+    remains RANGE.
+    */
 
     bias =
       "RANGE";
+
 
     strength =
       clamp(
@@ -2218,7 +2291,7 @@ function calculateBias(
 
 
 // ========================================================
-// SETUP ENGINE V4
+// SETUP FORMATION
 // ========================================================
 
 function detectSetupFormation(
@@ -2232,24 +2305,23 @@ function detectSetupFormation(
   emaState
 ) {
 
-  var bullishContinuation = 0;
-  var bearishContinuation = 0;
+  var bullish =
+    0;
 
-  var bullishReversal = 0;
-  var bearishReversal = 0;
+
+  var bearish =
+    0;
 
 
   /*
   ========================================================
-  CONTINUATION
+  CONTINUATION CONDITIONS
   ========================================================
   */
 
 
   /*
   BULLISH CONTINUATION
-
-  Requires actual bullish market evidence.
   */
 
   if (
@@ -2257,7 +2329,8 @@ function detectSetupFormation(
     "BULLISH"
   ) {
 
-    bullishContinuation += 30;
+    bullish +=
+      30;
   }
 
 
@@ -2267,7 +2340,8 @@ function detectSetupFormation(
     trend5m.strength >= 20
   ) {
 
-    bullishContinuation += 20;
+    bullish +=
+      20;
   }
 
 
@@ -2276,7 +2350,8 @@ function detectSetupFormation(
     "BULLISH"
   ) {
 
-    bullishContinuation += 25;
+    bullish +=
+      20;
   }
 
 
@@ -2285,17 +2360,8 @@ function detectSetupFormation(
     "Bullish"
   ) {
 
-    bullishContinuation += 10;
-  }
-
-
-  if (
-    momentum10s.direction ===
-    "BULLISH" &&
-    momentum10s.strength >= 40
-  ) {
-
-    bullishContinuation += 15;
+    bullish +=
+      10;
   }
 
 
@@ -2303,10 +2369,31 @@ function detectSetupFormation(
     fvg1m.direction ===
       "BULLISH FVG" &&
     fvg1m.active &&
-    fvg1m.strength >= 40
+    fvg1m.age <= 5
   ) {
 
-    bullishContinuation += 10;
+    bullish +=
+      10;
+  }
+
+
+  if (
+    momentum10s.direction ===
+    "BULLISH"
+  ) {
+
+    bullish +=
+      10;
+  }
+
+
+  if (
+    rsiContext.recoveryDirection ===
+    "BULLISH"
+  ) {
+
+    bullish +=
+      10;
   }
 
 
@@ -2319,7 +2406,8 @@ function detectSetupFormation(
     "BEARISH"
   ) {
 
-    bearishContinuation += 30;
+    bearish +=
+      30;
   }
 
 
@@ -2329,7 +2417,8 @@ function detectSetupFormation(
     trend5m.strength >= 20
   ) {
 
-    bearishContinuation += 20;
+    bearish +=
+      20;
   }
 
 
@@ -2338,7 +2427,8 @@ function detectSetupFormation(
     "BEARISH"
   ) {
 
-    bearishContinuation += 25;
+    bearish +=
+      20;
   }
 
 
@@ -2347,17 +2437,8 @@ function detectSetupFormation(
     "Bearish"
   ) {
 
-    bearishContinuation += 10;
-  }
-
-
-  if (
-    momentum10s.direction ===
-    "BEARISH" &&
-    momentum10s.strength >= 40
-  ) {
-
-    bearishContinuation += 15;
+    bearish +=
+      10;
   }
 
 
@@ -2365,30 +2446,55 @@ function detectSetupFormation(
     fvg1m.direction ===
       "BEARISH FVG" &&
     fvg1m.active &&
-    fvg1m.strength >= 40
+    fvg1m.age <= 5
   ) {
 
-    bearishContinuation += 10;
+    bearish +=
+      10;
+  }
+
+
+  if (
+    momentum10s.direction ===
+    "BEARISH"
+  ) {
+
+    bearish +=
+      10;
+  }
+
+
+  if (
+    rsiContext.recoveryDirection ===
+    "BEARISH"
+  ) {
+
+    bearish +=
+      10;
   }
 
 
   /*
   ========================================================
-  REVERSALS
+  REVERSAL CONDITIONS
   ========================================================
 
-  A sweep is only the FIRST condition.
+  A sweep by itself is NOT enough.
 
-  Bullish reversal:
-  SELL-SIDE SWEEP
-  + bullish reaction evidence
+  We require:
 
-  Bearish reversal:
-  BUY-SIDE SWEEP
-  + bearish reaction evidence
-
-  This prevents the exact problem seen in the V3.3 result.
+  • Fresh liquidity sweep
+  AND
+  • at least TWO independent reversal confirmations
   */
+
+
+  var bullishReversal =
+    0;
+
+
+  var bearishReversal =
+    0;
 
 
   /*
@@ -2398,60 +2504,54 @@ function detectSetupFormation(
   if (
     liquidity1m.direction ===
       "SELL-SIDE SWEEP" &&
-    liquidity1m.age <= 4 &&
+    liquidity1m.age <= 3 &&
     liquidity1m.strength >= 35
   ) {
 
-    bullishReversal += 25;
+    bullishReversal +=
+      35;
+  }
 
 
-    if (
-      structure1m.direction ===
-      "BULLISH"
-    ) {
+  if (
+    structure1m.direction ===
+    "BULLISH"
+  ) {
 
-      bullishReversal += 30;
-    }
-
-
-    if (
-      momentum10s.direction ===
-      "BULLISH" &&
-      momentum10s.strength >= 40
-    ) {
-
-      bullishReversal += 25;
-    }
+    bullishReversal +=
+      25;
+  }
 
 
-    if (
-      rsiContext.recoveryDirection ===
-      "BULLISH"
-    ) {
+  if (
+    momentum10s.direction ===
+    "BULLISH"
+  ) {
 
-      bullishReversal += 15;
-    }
-
-
-    if (
-      emaState ===
-      "Bullish"
-    ) {
-
-      bullishReversal += 10;
-    }
+    bullishReversal +=
+      20;
+  }
 
 
-    if (
-      fvg1m.direction ===
-        "BULLISH FVG" &&
-      fvg1m.active &&
-      fvg1m.strength >= 40
-    ) {
+  if (
+    rsiContext.recoveryDirection ===
+    "BULLISH"
+  ) {
 
-      bullishReversal += 10;
-    }
+    bullishReversal +=
+      20;
+  }
 
+
+  if (
+    fvg1m.direction ===
+      "BULLISH FVG" &&
+    fvg1m.active &&
+    fvg1m.age <= 5
+  ) {
+
+    bullishReversal +=
+      10;
   }
 
 
@@ -2462,131 +2562,269 @@ function detectSetupFormation(
   if (
     liquidity1m.direction ===
       "BUY-SIDE SWEEP" &&
-    liquidity1m.age <= 4 &&
+    liquidity1m.age <= 3 &&
     liquidity1m.strength >= 35
   ) {
 
-    bearishReversal += 25;
+    bearishReversal +=
+      35;
+  }
 
 
-    if (
-      structure1m.direction ===
-      "BEARISH"
-    ) {
+  if (
+    structure1m.direction ===
+    "BEARISH"
+  ) {
 
-      bearishReversal += 30;
-    }
-
-
-    if (
-      momentum10s.direction ===
-      "BEARISH" &&
-      momentum10s.strength >= 40
-    ) {
-
-      bearishReversal += 25;
-    }
+    bearishReversal +=
+      25;
+  }
 
 
-    if (
-      rsiContext.recoveryDirection ===
-      "BEARISH"
-    ) {
+  if (
+    momentum10s.direction ===
+    "BEARISH"
+  ) {
 
-      bearishReversal += 15;
-    }
-
-
-    if (
-      emaState ===
-      "Bearish"
-    ) {
-
-      bearishReversal += 10;
-    }
+    bearishReversal +=
+      20;
+  }
 
 
-    if (
-      fvg1m.direction ===
-        "BEARISH FVG" &&
-      fvg1m.active &&
-      fvg1m.strength >= 40
-    ) {
+  if (
+    rsiContext.recoveryDirection ===
+    "BEARISH"
+  ) {
 
-      bearishReversal += 10;
-    }
+    bearishReversal +=
+      20;
+  }
 
+
+  if (
+    fvg1m.direction ===
+      "BEARISH FVG" &&
+    fvg1m.active &&
+    fvg1m.age <= 5
+  ) {
+
+    bearishReversal +=
+      10;
   }
 
 
   /*
   ========================================================
-  DETERMINE BEST SETUP
+  REVERSAL CONFIRMATION COUNTS
   ========================================================
   */
 
-  var candidates = [
+  var bullishReversalConfirmations =
+    0;
 
-    {
+
+  var bearishReversalConfirmations =
+    0;
+
+
+  if (
+    structure1m.direction ===
+    "BULLISH"
+  ) {
+
+    bullishReversalConfirmations++;
+  }
+
+
+  if (
+    momentum10s.direction ===
+    "BULLISH"
+  ) {
+
+    bullishReversalConfirmations++;
+  }
+
+
+  if (
+    rsiContext.recoveryDirection ===
+    "BULLISH"
+  ) {
+
+    bullishReversalConfirmations++;
+  }
+
+
+  if (
+    fvg1m.direction ===
+      "BULLISH FVG" &&
+    fvg1m.active &&
+    fvg1m.age <= 5
+  ) {
+
+    bullishReversalConfirmations++;
+  }
+
+
+  if (
+    structure1m.direction ===
+    "BEARISH"
+  ) {
+
+    bearishReversalConfirmations++;
+  }
+
+
+  if (
+    momentum10s.direction ===
+    "BEARISH"
+  ) {
+
+    bearishReversalConfirmations++;
+  }
+
+
+  if (
+    rsiContext.recoveryDirection ===
+    "BEARISH"
+  ) {
+
+    bearishReversalConfirmations++;
+  }
+
+
+  if (
+    fvg1m.direction ===
+      "BEARISH FVG" &&
+    fvg1m.active &&
+    fvg1m.age <= 5
+  ) {
+
+    bearishReversalConfirmations++;
+  }
+
+
+  /*
+  ========================================================
+  NORMAL CONTINUATION SETUPS
+  ========================================================
+  */
+
+  if (
+    bullish >= 70 &&
+    bullish > bearish + 15 &&
+    trend5m.direction ===
+      "BULLISH" &&
+    trend5m.strength >= 20
+  ) {
+
+    return {
+
       type:
-        "BULLISH CONTINUATION",
+        "BULLISH CONTINUATION FORMING",
 
       direction:
         "BUY",
 
       score:
-        bullishContinuation
-    },
+        bullish,
 
-    {
+      confirmations:
+        0,
+
+      setupKind:
+        "CONTINUATION"
+    };
+  }
+
+
+  if (
+    bearish >= 70 &&
+    bearish > bullish + 15 &&
+    trend5m.direction ===
+      "BEARISH" &&
+    trend5m.strength >= 20
+  ) {
+
+    return {
+
       type:
-        "BEARISH CONTINUATION",
+        "BEARISH CONTINUATION FORMING",
 
       direction:
         "SELL",
 
       score:
-        bearishContinuation
-    },
+        bearish,
 
-    {
+      confirmations:
+        0,
+
+      setupKind:
+        "CONTINUATION"
+    };
+  }
+
+
+  /*
+  ========================================================
+  REVERSAL SETUPS
+  ========================================================
+  */
+
+  if (
+    bullishReversal >= 65 &&
+    bullishReversalConfirmations >= 2 &&
+    liquidity1m.direction ===
+      "SELL-SIDE SWEEP" &&
+    liquidity1m.age <= 3
+  ) {
+
+    return {
+
       type:
-        "BULLISH REVERSAL",
+        "BULLISH REVERSAL FORMING",
 
       direction:
         "BUY",
 
       score:
-        bullishReversal
-    },
+        bullishReversal,
 
-    {
+      confirmations:
+        bullishReversalConfirmations,
+
+      setupKind:
+        "REVERSAL"
+    };
+  }
+
+
+  if (
+    bearishReversal >= 65 &&
+    bearishReversalConfirmations >= 2 &&
+    liquidity1m.direction ===
+      "BUY-SIDE SWEEP" &&
+    liquidity1m.age <= 3
+  ) {
+
+    return {
+
       type:
-        "BEARISH REVERSAL",
+        "BEARISH REVERSAL FORMING",
 
       direction:
         "SELL",
 
       score:
-        bearishReversal
-    }
+        bearishReversal,
 
-  ];
+      confirmations:
+        bearishReversalConfirmations,
 
-
-  candidates.sort(
-    function(a, b) {
-      return b.score - a.score;
-    }
-  );
-
-
-  var best =
-    candidates[0];
-
-
-  var second =
-    candidates[1];
+      setupKind:
+        "REVERSAL"
+    };
+  }
 
 
   /*
@@ -2594,56 +2832,73 @@ function detectSetupFormation(
   RANGE PROTECTION
   ========================================================
 
-  When the market is RANGE, a setup needs significantly
-  stronger evidence.
+  If 5M is RANGE, do not create a directional
+  continuation setup.
 
-  This prevents a single sweep from becoming a setup.
+  A reversal can only survive if it has
+  very strong evidence.
   */
 
   if (
-    bias.bias ===
+    trend5m.direction ===
     "RANGE"
   ) {
 
+    /*
+    Only allow exceptional reversal.
+    */
+
     if (
-      best.score < 70 ||
-      best.score <
-        second.score + 15
+      bullishReversal >= 80 &&
+      bullishReversalConfirmations >= 3 &&
+      liquidity1m.strength >= 50
     ) {
 
       return {
 
         type:
-          "NO CLEAR SETUP",
+          "BULLISH REVERSAL FORMING",
 
         direction:
-          "WAIT",
+          "BUY",
 
         score:
-          best.score,
+          bullishReversal,
 
-        setupState:
-          "NONE",
+        confirmations:
+          bullishReversalConfirmations,
 
-        reason:
-          "Market bias is RANGE and no sufficiently dominant setup has formed."
+        setupKind:
+          "REVERSAL"
       };
     }
 
-  }
 
+    if (
+      bearishReversal >= 80 &&
+      bearishReversalConfirmations >= 3 &&
+      liquidity1m.strength >= 50
+    ) {
 
-  /*
-  ========================================================
-  NORMAL MARKET PROTECTION
-  ========================================================
-  */
+      return {
 
-  if (
-    best.score < 60 ||
-    best.score <
-      second.score + 10
-  ) {
+        type:
+          "BEARISH REVERSAL FORMING",
+
+        direction:
+          "SELL",
+
+        score:
+          bearishReversal,
+
+        confirmations:
+          bearishReversalConfirmations,
+
+        setupKind:
+          "REVERSAL"
+      };
+    }
+
 
     return {
 
@@ -2654,43 +2909,43 @@ function detectSetupFormation(
         "WAIT",
 
       score:
-        best.score,
+        Math.max(
+          bullishReversal,
+          bearishReversal,
+          bullish,
+          bearish
+        ),
 
-      setupState:
-        "NONE",
+      confirmations:
+        0,
 
-      reason:
-        "Directional conditions are not sufficiently dominant."
+      setupKind:
+        "NONE"
     };
   }
 
 
-  /*
-  ========================================================
-  SETUP FORMING
-  ========================================================
-  */
-
   return {
 
     type:
-      best.type,
+      "NO CLEAR SETUP",
 
     direction:
-      best.direction,
+      "WAIT",
 
     score:
-      clamp(
-        best.score,
-        0,
-        100
+      Math.max(
+        bullish,
+        bearish,
+        bullishReversal,
+        bearishReversal
       ),
 
-    setupState:
-      "DEVELOPING",
+    confirmations:
+      0,
 
-    reason:
-      "A directional setup is developing, but entry confirmation is still required."
+    setupKind:
+      "NONE"
   };
 }
 
@@ -2707,8 +2962,10 @@ function calculateTrigger(
 ) {
 
   if (
-    direction !== "BUY" &&
-    direction !== "SELL"
+    direction !==
+      "BUY" &&
+    direction !==
+      "SELL"
   ) {
 
     return {
@@ -2717,7 +2974,7 @@ function calculateTrigger(
         0,
 
       quality:
-        "NONE",
+        "WEAK",
 
       confirmed:
         false
@@ -2726,12 +2983,14 @@ function calculateTrigger(
 
 
   var expected =
-    direction === "BUY"
+    direction ===
+      "BUY"
       ? "BULLISH"
       : "BEARISH";
 
 
-  var score = 0;
+  var score =
+    0;
 
 
   /*
@@ -2743,28 +3002,27 @@ function calculateTrigger(
     expected
   ) {
 
-    score += 60;
+    score +=
+      55;
   }
 
 
   /*
-  10S MOMENTUM
+  MOMENTUM
   */
 
   if (
     momentum10s.direction ===
-    expected &&
-    momentum10s.strength >= 40
+    expected
   ) {
 
-    score += 30;
+    score +=
+      30;
   }
 
 
   /*
   RSI
-
-  Supporting evidence only.
   */
 
   if (
@@ -2772,7 +3030,8 @@ function calculateTrigger(
     expected
   ) {
 
-    score += 10;
+    score +=
+      15;
   }
 
 
@@ -2789,14 +3048,14 @@ function calculateTrigger(
 
 
   if (
-    score >= 90
+    score >= 80
   ) {
 
     quality =
       "STRONG";
 
   } else if (
-    score >= 60
+    score >= 50
   ) {
 
     quality =
@@ -2805,18 +3064,18 @@ function calculateTrigger(
 
 
   /*
-  FINAL TRIGGER
+  STRICT FINAL TRIGGER
 
-  Both BOS and matching momentum are mandatory.
-  RSI cannot replace either one.
+  BOS MUST MATCH.
+  MOMENTUM MUST MATCH.
   */
 
   var confirmed =
+    score >= 85 &&
     structure10s.bosDirection ===
       expected &&
     momentum10s.direction ===
-      expected &&
-    momentum10s.strength >= 40;
+      expected;
 
 
   return {
@@ -2884,22 +3143,18 @@ function calculateLevels(
   var low =
     Math.min.apply(
       null,
-      recent.map(
-        function(c) {
-          return c.low;
-        }
-      )
+      recent.map(function(c) {
+        return c.low;
+      })
     );
 
 
   var high =
     Math.max.apply(
       null,
-      recent.map(
-        function(c) {
-          return c.high;
-        }
-      )
+      recent.map(function(c) {
+        return c.high;
+      })
     );
 
 
@@ -2908,6 +3163,7 @@ function calculateLevels(
 
 
   var stopLoss;
+
   var takeProfit;
 
 
@@ -3048,9 +3304,7 @@ async function analyse(symbol) {
 
 
   /*
-  ========================================================
   TIMEFRAMES
-  ========================================================
   */
 
   var candles10s =
@@ -3088,7 +3342,7 @@ async function analyse(symbol) {
 
   /*
   ========================================================
-  5M MARKET
+  5M
   ========================================================
   */
 
@@ -3100,7 +3354,7 @@ async function analyse(symbol) {
 
   /*
   ========================================================
-  1M MARKET
+  1M
   ========================================================
   */
 
@@ -3143,7 +3397,7 @@ async function analyse(symbol) {
 
   /*
   ========================================================
-  10S TRIGGER
+  10S
   ========================================================
   */
 
@@ -3161,7 +3415,7 @@ async function analyse(symbol) {
 
   /*
   ========================================================
-  MARKET BIAS
+  BIAS
   ========================================================
   */
 
@@ -3196,21 +3450,6 @@ async function analyse(symbol) {
 
   /*
   ========================================================
-  TRIGGER
-  ========================================================
-  */
-
-  var trigger =
-    calculateTrigger(
-      setup.direction,
-      structure10s,
-      momentum10s,
-      rsiContext
-    );
-
-
-  /*
-  ========================================================
   DEFAULT RESULT
   ========================================================
   */
@@ -3225,11 +3464,6 @@ async function analyse(symbol) {
 
   var setupType =
     "NO CONFIRMED SETUP";
-
-
-  var setupState =
-    setup.setupState ||
-    "NONE";
 
 
   var confidence =
@@ -3264,7 +3498,23 @@ async function analyse(symbol) {
     "Conditions are not sufficiently aligned.";
 
 
-  var watchFor = [];
+  var watchFor =
+    [];
+
+
+  /*
+  ========================================================
+  TRIGGER
+  ========================================================
+  */
+
+  var trigger =
+    calculateTrigger(
+      setup.direction,
+      structure10s,
+      momentum10s,
+      rsiContext
+    );
 
 
   /*
@@ -3280,12 +3530,25 @@ async function analyse(symbol) {
       "SELL"
   ) {
 
+    /*
+    Never call a setup confirmed
+    before trigger.
+    */
+
+    marketState =
+      "SETUP_FORMING";
+
+
     setupType =
       setup.type;
 
 
     score =
       setup.score;
+
+
+    confirmations =
+      setup.confirmations || 0;
 
 
     /*
@@ -3306,23 +3569,26 @@ async function analyse(symbol) {
         "TRIGGER_CONFIRMED";
 
 
-      setupState =
-        "CONFIRMED";
-
-
-      setupType =
-        setup.type;
-
-
       confidence =
         score >= 85 &&
-        trigger.score >= 90
+        trigger.score >= 85 &&
+        confirmations >= 2
           ? "HIGH"
           : "MEDIUM";
 
 
+      setupType =
+        setup.type.replace(
+          " FORMING",
+          ""
+        );
+
+
       confirmations =
-        4;
+        Math.max(
+          confirmations,
+          4
+        );
 
 
       levels =
@@ -3333,28 +3599,64 @@ async function analyse(symbol) {
         );
 
 
+      /*
+      Safety check:
+      if levels failed,
+      don't issue trade.
+      */
+
       if (
-        action ===
-        "BUY"
+        levels.entry === null ||
+        levels.stopLoss === null ||
+        levels.takeProfit === null
       ) {
 
+        action =
+          "WAIT";
+
+
+        marketState =
+          "SETUP_FORMING";
+
+
+        confidence =
+          "LOW";
+
+
+        setupType =
+          setup.type;
+
+
         reason =
-          "Bullish setup conditions aligned and the 10-second BOS with matching momentum confirmed the entry.";
+          "The setup formed, but valid trade levels could not be calculated.";
+
 
       } else {
 
-        reason =
-          "Bearish setup conditions aligned and the 10-second BOS with matching momentum confirmed the entry.";
+        if (
+          action ===
+          "BUY"
+        ) {
+
+          reason =
+            "Bullish setup conditions aligned and the strict 10-second BOS and momentum trigger confirmed the entry.";
+
+        } else {
+
+          reason =
+            "Bearish setup conditions aligned and the strict 10-second BOS and momentum trigger confirmed the entry.";
+        }
+
       }
 
 
-    /*
-    ======================================================
-    SETUP DEVELOPING
-    ======================================================
-    */
-
     } else {
+
+      /*
+      ====================================================
+      NO ENTRY
+      ====================================================
+      */
 
       action =
         "WAIT";
@@ -3364,30 +3666,32 @@ async function analyse(symbol) {
         "SETUP_FORMING";
 
 
-      setupState =
-        "DEVELOPING";
-
-
       confidence =
         "LOW";
 
 
-      confirmations =
-        0;
-
-
       if (
-        setup.direction ===
-        "BUY"
+        setup.setupKind ===
+        "REVERSAL"
       ) {
 
         reason =
-          "A bullish setup is developing, but the 10-second entry trigger is not confirmed.";
+          (
+            "A possible " +
+            setup.direction.toLowerCase() +
+            " reversal is developing, but the strict entry trigger is not confirmed."
+          );
 
       } else {
 
         reason =
-          "A bearish setup is developing, but the 10-second entry trigger is not confirmed.";
+          (
+            setup.direction ===
+            "BUY"
+              ? "Bullish"
+              : "Bearish"
+          ) +
+          " conditions are developing, but the strict entry trigger is not confirmed.";
       }
 
     }
@@ -3397,7 +3701,7 @@ async function analyse(symbol) {
 
     /*
     ======================================================
-    NO SETUP
+    NO VALID SETUP
     ======================================================
     */
 
@@ -3410,24 +3714,38 @@ async function analyse(symbol) {
 
 
     setupType =
-      "NO CLEAR SETUP";
-
-
-    setupState =
-      "NONE";
-
-
-    score =
-      setup.score;
+      "NO CONFIRMED SETUP";
 
 
     confidence =
       "LOW";
 
 
-    reason =
-      setup.reason ||
-      "Conditions are not sufficiently aligned.";
+    score =
+      0;
+
+
+    confirmations =
+      0;
+
+
+    /*
+    RANGE-SPECIFIC EXPLANATION
+    */
+
+    if (
+      trend5m.direction ===
+      "RANGE"
+    ) {
+
+      reason =
+        "Market is ranging. There is insufficient directional confirmation for a valid setup.";
+
+    } else {
+
+      reason =
+        "Conditions are not sufficiently aligned for a valid setup.";
+    }
 
   }
 
@@ -3439,119 +3757,47 @@ async function analyse(symbol) {
   */
 
   if (
-    bias.bias ===
+    trend5m.direction ===
     "RANGE"
   ) {
 
     watchFor.push(
-      "Clear directional bias"
+      "5M directional breakout"
     );
-
-  }
-
-
-  if (
-    trend5m.direction ===
-      "BULLISH" &&
-    trend5m.strength < 20
-  ) {
-
-    watchFor.push(
-      "Stronger 5M trend"
-    );
-
   }
 
 
   if (
     structure1m.direction ===
-    "RANGE"
+      "RANGE" ||
+    structure1m.bosDirection ===
+      "NONE"
   ) {
 
     watchFor.push(
       "1M directional structure"
     );
-
   }
 
 
   if (
-    structure1m.bosDirection ===
-    "NONE"
-  ) {
-
-    watchFor.push(
-      "1M directional BOS"
-    );
-
-  }
-
-
-  if (
-    trigger.score < 70
+    trigger.score < 85
   ) {
 
     watchFor.push(
       "Stronger entry trigger"
     );
-
-  }
-
-
-  if (
-    structure10s.bosDirection ===
-    "NONE"
-  ) {
-
-    watchFor.push(
-      "10S trigger BOS"
-    );
-
   }
 
 
   if (
     momentum10s.direction ===
-      "NEUTRAL" ||
-    momentum10s.strength < 40
+    "NEUTRAL"
   ) {
 
     watchFor.push(
       "Momentum confirmation"
     );
-
-  }
-
-
-  /*
-  Reversal-specific monitoring.
-  */
-
-  if (
-    setup.type ===
-      "BEARISH REVERSAL" &&
-    structure1m.direction !==
-      "BEARISH"
-  ) {
-
-    watchFor.push(
-      "Bearish 1M reaction after liquidity sweep"
-    );
-
-  }
-
-
-  if (
-    setup.type ===
-      "BULLISH REVERSAL" &&
-    structure1m.direction !==
-      "BULLISH"
-  ) {
-
-    watchFor.push(
-      "Bullish 1M reaction after liquidity sweep"
-    );
-
   }
 
 
@@ -3561,29 +3807,57 @@ async function analyse(symbol) {
 
   if (
     fvg1m.direction ===
-    "NONE"
+      "NONE" ||
+    !fvg1m.active ||
+    fvg1m.age > 5
   ) {
 
     watchFor.push(
-      "Active FVG"
+      "Fresh active FVG"
     );
-
   }
 
 
   /*
-  Remove duplicates.
+  LIQUIDITY
+  */
+
+  if (
+    setup.setupKind ===
+      "REVERSAL" &&
+    (
+      liquidity1m.direction ===
+        "NONE" ||
+      liquidity1m.age > 3
+    )
+  ) {
+
+    watchFor.push(
+      "Fresh liquidity confirmation"
+    );
+  }
+
+
+  /*
+  REMOVE DUPLICATES
   */
 
   watchFor =
-    uniqueArray(
-      watchFor
+    watchFor.filter(
+      function(item, index, array) {
+
+        return (
+          array.indexOf(item) ===
+          index
+        );
+
+      }
     );
 
 
   /*
   ========================================================
-  FINAL RESPONSE
+  RESPONSE
   ========================================================
   */
 
@@ -3606,11 +3880,7 @@ async function analyse(symbol) {
 
 
     version:
-      "V4-FINAL",
-
-
-    frozen:
-      true,
+      "V3.4 FINAL",
 
 
     history: {
@@ -3620,7 +3890,6 @@ async function analyse(symbol) {
 
       batches:
         HISTORY_BATCHES
-
     },
 
 
@@ -3634,135 +3903,110 @@ async function analyse(symbol) {
 
       fiveMinute:
         candles5m.length
-
     },
 
 
     analysis: {
 
-      /*
-      MARKET BIAS
-      */
-
       bias:
         bias.bias,
+
 
       biasStrength:
         bias.strength,
 
+
       buyBias:
         bias.buyBias,
+
 
       sellBias:
         bias.sellBias,
 
 
-      /*
-      5M
-      */
-
       trend5m:
         trend5m.direction,
+
 
       trend5mStrength:
         trend5m.strength,
 
 
-      /*
-      1M STRUCTURE
-      */
-
       structure1m:
         structure1m.direction,
 
+
       bos:
         structure1m.bos,
+
 
       bosDirection:
         structure1m.bosDirection,
 
 
-      /*
-      10S TRIGGER STRUCTURE
-      */
-
       triggerBosDirection:
         structure10s.bosDirection,
 
 
-      /*
-      LIQUIDITY
-      */
-
       liquidity:
         liquidity1m.direction,
 
+
       liquidityStrength:
         liquidity1m.strength,
+
 
       liquidityAge:
         liquidity1m.age,
 
 
-      /*
-      FVG
-      */
-
       fvg:
         fvg1m.direction,
+
 
       fvgStrength:
         fvg1m.strength,
 
+
       fvgRawStrength:
         fvg1m.rawStrength,
+
 
       fvgAge:
         fvg1m.age,
 
+
       fvgFreshness:
         fvg1m.freshness,
+
 
       fvgActive:
         fvg1m.active,
 
 
-      /*
-      MOMENTUM
-      */
-
       momentum:
         momentum10s.direction,
+
 
       momentumStrength:
         momentum10s.strength,
 
 
-      /*
-      TRIGGER
-      */
-
       triggerQuality:
         trigger.quality,
 
+
       triggerScore:
         trigger.score,
+
 
       triggerConfirmed:
         trigger.confirmed,
 
 
-      /*
-      EMA
-      */
-
       ema:
         emaState,
 
-
-      /*
-      RSI
-      */
 
       rsi:
         rsiContext.value !== null
@@ -3772,19 +4016,18 @@ async function analyse(symbol) {
             )
           : null,
 
+
       rsiContext:
         rsiContext.context,
+
 
       rsiRecovery:
         rsiContext.recovery,
 
+
       rsiRecoveryDirection:
         rsiContext.recoveryDirection,
 
-
-      /*
-      ATR
-      */
 
       atr:
         atrValue !== null
@@ -3793,7 +4036,6 @@ async function analyse(symbol) {
               5
             )
           : null
-
     },
 
 
@@ -3802,44 +4044,50 @@ async function analyse(symbol) {
       action:
         action,
 
+
       marketState:
         marketState,
+
 
       setupType:
         setupType,
 
-      setupState:
-        setupState,
 
       confidence:
         confidence,
 
+
       score:
         score,
+
 
       confirmations:
         confirmations,
 
+
       entry:
         levels.entry,
+
 
       stopLoss:
         levels.stopLoss,
 
+
       takeProfit:
         levels.takeProfit,
+
 
       rr:
         levels.rr,
 
+
       reason:
         reason,
 
+
       watchFor:
         watchFor
-
     }
-
   };
 }
 
@@ -3864,14 +4112,10 @@ app.get(
         "online",
 
       version:
-        "V4-FINAL",
-
-      frozen:
-        true,
+        "V3.4 FINAL",
 
       mode:
         "paper analysis only"
-
     });
 
   }
@@ -3899,12 +4143,11 @@ app.get(
 
         symbol =
           DEFAULT_SYMBOL;
-
       }
 
 
       console.log(
-        "Keamz Fx V4-FINAL analysing: " +
+        "Keamz Fx V3.4 FINAL analysing: " +
         symbol
       );
 
@@ -3938,16 +4181,11 @@ app.get(
           "Analysis failed.",
 
         version:
-          "V4-FINAL",
-
-        frozen:
-          true,
+          "V3.4 FINAL",
 
         mode:
           "paper analysis only"
-
       });
-
     }
 
   }
@@ -3964,7 +4202,7 @@ app.listen(
   function() {
 
     console.log(
-      "Keamz Fx V4-FINAL running on port " +
+      "Keamz Fx V3.4 FINAL running on port " +
       PORT
     );
 
